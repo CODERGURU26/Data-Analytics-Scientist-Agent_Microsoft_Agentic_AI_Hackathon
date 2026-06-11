@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 import logging
 from datetime import datetime
@@ -34,7 +35,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.cors_origin, "http://localhost:5173"],
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -176,6 +177,7 @@ def create_app() -> FastAPI:
 
         analysis_id = uuid.uuid4().hex
         filename = Path(file.filename).name
+        cache_key = hashlib.sha256(content).hexdigest()
         destination = app_settings.upload_dir / f"{analysis_id}.csv"
         destination.write_bytes(content)
 
@@ -185,6 +187,25 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             destination.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        cached_result = app.state.analysis_cache.get(cache_key)
+        if cached_result is not None:
+            analysis_store.save(
+                AnalysisStatus(
+                    analysis_id=analysis_id,
+                    filename=filename,
+                    created_at=datetime.utcnow(),
+                    status="completed",
+                    current_phase=11,
+                    progress_label="Using cached analysis",
+                    result=cached_result,
+                    error=None,
+                    cache_key=cache_key,
+                    cleaning_summary=getattr(cached_result.data_quality, "cleaning_summary", None),
+                )
+            )
+            app.state.dataframes[analysis_id] = dataframe
+            return response
 
         analysis_store.save(
             AnalysisStatus(
@@ -196,6 +217,7 @@ def create_app() -> FastAPI:
                 progress_label="Upload complete",
                 result=None,
                 error=None,
+                cache_key=cache_key,
             )
         )
         app.state.dataframes[analysis_id] = dataframe
@@ -211,6 +233,9 @@ def create_app() -> FastAPI:
         status = analysis_store.get(payload.analysis_id)
         if not status:
             raise HTTPException(status_code=404, detail="Analysis ID not found.")
+
+        if status.result is not None and status.status == "completed":
+            return {"analysis_id": payload.analysis_id, "status": "completed", "cached": True}
 
         dataframe = app.state.dataframes.get(payload.analysis_id)
         if dataframe is None:
@@ -263,6 +288,7 @@ def create_app() -> FastAPI:
         return FileResponse(report_path, filename=f"insightai-report-{analysis_id}.pdf")
 
     app.state.dataframes = {}
+    app.state.analysis_cache = getattr(app.state, "analysis_cache", {})
     return app
 
 
@@ -310,6 +336,8 @@ async def run_analysis_job(app: FastAPI, analysis_id: str, settings: Settings) -
                     result.business_insights.source,
                     result.model_recommendations.source,
                     result.executive_report.source)
+        if status.cache_key:
+            app.state.analysis_cache[status.cache_key] = result
         analysis_store.update(
             analysis_id,
             status="completed",

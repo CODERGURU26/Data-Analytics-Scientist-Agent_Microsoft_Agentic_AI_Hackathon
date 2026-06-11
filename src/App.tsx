@@ -80,8 +80,12 @@ function ConsolePage() {
   const [analysis, setAnalysis] = useState<AnalysisStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [connectionState, setConnectionState] = useState<"checking" | "connected" | "offline" | "degraded" | "demo">("checking");
-  const [connectionReason, setConnectionReason] = useState<string>("Checking connection");
+  const [connectionState, setConnectionState] = useState<
+    "checking" | "connected" | "offline" | "degraded" | "demo"
+  >("checking");
+  const [connectionReason, setConnectionReason] = useState<string>(
+    "Checking connection",
+  );
   const [datasetMeta, setDatasetMeta] = useState<{
     filename: string;
     file_size_bytes: number;
@@ -103,10 +107,14 @@ function ConsolePage() {
       if (!diagnostics.api_configured) {
         setConnectionState("demo");
         setConnectionReason("Demo Mode");
-        console.info("[InsightAI] connection reason", "API env missing. Demo Mode enabled.");
+        console.info(
+          "[InsightAI] connection reason",
+          "API env missing. Demo Mode enabled.",
+        );
         console.info("[InsightAI] azure config", {
           endpoint: diagnostics.mode ?? "unknown",
-          azureOpenAIConfigured: diagnostics.azure_openai_configured ?? "unknown",
+          azureOpenAIConfigured:
+            diagnostics.azure_openai_configured ?? "unknown",
           backendConfigured: diagnostics.backend_configured ?? "unknown",
         });
         return;
@@ -121,7 +129,9 @@ function ConsolePage() {
       );
       console.info("[InsightAI] health check response", {
         connected: online,
-        reason: online ? "Health endpoint returned ok" : "Health endpoint unavailable",
+        reason: online
+          ? "Health endpoint returned ok"
+          : "Health endpoint unavailable",
       });
       console.info("[InsightAI] backend status", {
         apiOrigin: diagnostics.api_origin,
@@ -160,7 +170,8 @@ function ConsolePage() {
   );
   const showAdvancedSections = Boolean(uploadMeta || analysis);
   const statusMessage = useMemo(() => {
-    if (busy || (analysis && analysis.status === "processing")) return "Loading";
+    if (busy || (analysis && analysis.status === "processing"))
+      return "Loading";
     if (connectionState === "checking") return "Checking Connection";
     if (connectionState === "connected") return "Connected";
     if (connectionState === "demo") return "Demo Mode";
@@ -331,145 +342,165 @@ function ConsolePage() {
           style={{ backdropFilter: navBlur, backgroundColor: navTint }}
           className="fixed inset-x-0 top-4 z-50 mx-auto flex h-20 w-[min(1440px,calc(100%-24px))] items-center justify-between rounded-full border border-[var(--border)] px-5 shadow-[0_20px_80px_rgba(0,0,0,0.28)] md:px-8"
         >
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full border border-[rgba(198,168,106,0.38)] bg-[rgba(198,168,106,0.08)]">
-            <Sparkles className="h-5 w-5 text-[var(--accent)]" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full border border-[rgba(198,168,106,0.38)] bg-[rgba(198,168,106,0.08)]">
+              <Sparkles className="h-5 w-5 text-[var(--accent)]" />
+            </div>
+            <div>
+              <p className="font-heading text-lg tracking-[-0.04em]">
+                InsightAI
+              </p>
+              <p className="text-xs uppercase tracking-[0.34em] text-[var(--text-secondary)]">
+                Autonomous Intelligence
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="font-heading text-lg tracking-[-0.04em]">InsightAI</p>
-            <p className="text-xs uppercase tracking-[0.34em] text-[var(--text-secondary)]">
-              Autonomous Intelligence
-            </p>
-          </div>
-        </div>
 
-        <nav className="hidden items-center gap-8 text-sm text-[var(--text-secondary)] lg:flex">
-          {navItems.map((item) => (
-            <a
-              key={item}
-              href={`#${item.toLowerCase().replace(/\s+/g, "-")}`}
-              className="transition-colors duration-300 hover:text-[var(--text-primary)]"
+          <nav className="hidden items-center gap-8 text-sm text-[var(--text-secondary)] lg:flex">
+            {navItems.map((item) => (
+              <a
+                key={item}
+                href={`#${item.toLowerCase().replace(/\s+/g, "-")}`}
+                className="transition-colors duration-300 hover:text-[var(--text-primary)]"
+              >
+                {item}
+              </a>
+            ))}
+          </nav>
+
+          <div className="hidden items-center gap-3 md:flex">
+            <button className="rounded-full border border-[var(--border)] px-5 py-3 text-sm text-[var(--text-primary)] transition duration-300 hover:border-[rgba(198,168,106,0.32)] hover:bg-[rgba(255,255,255,0.03)]">
+              Request Demo
+            </button>
+            <button
+              onClick={handleUpload}
+              className="rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-medium text-[#0A0D12] shadow-[0_0_32px_rgba(198,168,106,0.28)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_40px_rgba(198,168,106,0.4)]"
             >
-              {item}
-            </a>
-          ))}
-        </nav>
-
-        <div className="hidden items-center gap-3 md:flex">
-          <button className="rounded-full border border-[var(--border)] px-5 py-3 text-sm text-[var(--text-primary)] transition duration-300 hover:border-[rgba(198,168,106,0.32)] hover:bg-[rgba(255,255,255,0.03)]">
-            Request Demo
-          </button>
-          <button
-            onClick={handleUpload}
-            className="rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-medium text-[#0A0D12] shadow-[0_0_32px_rgba(198,168,106,0.28)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_40px_rgba(198,168,106,0.4)]"
-          >
-            Launch Analysis
-          </button>
-        </div>
+              Launch Analysis
+            </button>
+          </div>
         </motion.header>
       )}
 
       <main className="relative z-10">
         {!isConsoleRoute && (
-        <section className={`${PAGE_CONTAINER} grid min-h-screen items-center ${SECTION_STACK}`}>
-          <div className="grid items-center gap-6 lg:grid-cols-12">
-            <div className="lg:col-span-7 max-w-[760px]">
-              <motion.div
-                initial={{ opacity: 0, y: 18 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.9, ease }}
-                className="mb-6 inline-flex items-center rounded-full border border-[rgba(198,168,106,0.35)] bg-[rgba(198,168,106,0.06)] px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-[var(--accent)]"
-              >
-                Autonomous Data Intelligence
-              </motion.div>
-
-              <div className="max-w-[780px] space-y-2">
-                {["Upload Raw Data.", "Receive Business Intelligence.", "Deploy Machine Learning Strategy."].map((line, index) => (
-                  <motion.h1
-                    key={line}
-                    initial={{ opacity: 0, y: 26 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 1, delay: 0.12 * index, ease }}
-                    className="font-heading text-[clamp(3.2rem,6vw,6.2rem)] leading-[0.95] tracking-[-0.045em]"
-                  >
-                    {line}
-                  </motion.h1>
-                ))}
-              </div>
-
-              <motion.p
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 1, delay: 0.42, ease }}
-                className="mt-8 max-w-[700px] text-base leading-8 text-[var(--text-secondary)] md:text-lg"
-              >
-                InsightAI autonomously profiles datasets, uncovers patterns, explains business implications, and recommends machine learning strategies through an 11-phase reasoning workflow.
-              </motion.p>
-
-              <motion.div
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 1, delay: 0.56, ease }}
-                className="mt-8 flex flex-col items-start gap-4 sm:mt-8 sm:flex-row"
-              >
-                <button
-                  onClick={launchAnalysisView}
-                  className="group inline-flex items-center gap-3 rounded-full bg-[var(--accent)] px-7 py-4 text-base font-medium text-[#0A0D12] shadow-[0_0_40px_rgba(198,168,106,0.24)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_56px_rgba(198,168,106,0.35)]"
+          <section
+            className={`${PAGE_CONTAINER} grid min-h-screen items-center ${SECTION_STACK}`}
+          >
+            <div className="grid items-center gap-6 lg:grid-cols-12">
+              <div className="lg:col-span-7 max-w-[760px]">
+                <motion.div
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.9, ease }}
+                  className="mb-6 inline-flex items-center rounded-full border border-[rgba(198,168,106,0.35)] bg-[rgba(198,168,106,0.06)] px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-[var(--accent)]"
                 >
-                  Launch Analysis
-                  <ArrowRight className="h-5 w-5 transition-transform duration-300 group-hover:translate-x-1" />
-                </button>
-                <a
-                  href="#reasoning-engine"
-                  className="rounded-full border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-7 py-4 text-base text-[var(--text-primary)] transition duration-300 hover:border-[rgba(198,168,106,0.28)] hover:bg-[rgba(255,255,255,0.04)]"
-                >
-                  Explore Workflow
-                </a>
-              </motion.div>
+                  Autonomous Data Intelligence
+                </motion.div>
 
-              <motion.div
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 1, delay: 0.72, ease }}
-                className="mt-12 max-w-[760px] rounded-[28px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(30,38,49,0.86),rgba(17,22,29,0.86))] px-5 py-4 shadow-[0_25px_120px_rgba(0,0,0,0.28)]"
-              >
-                <div className="mb-3 flex items-center justify-between gap-4">
-                  <p className="text-sm uppercase tracking-[0.24em] text-[var(--text-secondary)]">
-                    11-Phase Reasoning Pipeline
-                  </p>
-                  <div className="h-px flex-1 bg-[linear-gradient(90deg,transparent,rgba(198,168,106,0.45),transparent)]" />
-                </div>
-                <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--text-primary)] md:gap-4">
-                  {["Dataset Understanding", "Data Quality", "EDA", "Insights", "ML Strategy"].map((item, index) => (
-                    <div key={item} className="flex items-center gap-3">
-                      <motion.span
-                        initial={{ opacity: 0.45 }}
-                        animate={{ opacity: [0.45, 1, 0.45] }}
-                        transition={{
-                          duration: 3.8,
-                          delay: index * 0.28,
-                          repeat: Number.POSITIVE_INFINITY,
-                          ease: "easeInOut",
-                        }}
-                        className="rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-3 py-2"
-                      >
-                        {item}
-                      </motion.span>
-                      {index < 4 && <span className="text-[var(--accent)]">→</span>}
-                    </div>
+                <div className="max-w-[780px] space-y-2">
+                  {[
+                    "Upload Raw Data.",
+                    "Receive Business Intelligence.",
+                    "Deploy Machine Learning Strategy.",
+                  ].map((line, index) => (
+                    <motion.h1
+                      key={line}
+                      initial={{ opacity: 0, y: 26 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 1, delay: 0.12 * index, ease }}
+                      className="font-heading text-[clamp(3.2rem,6vw,6.2rem)] leading-[0.95] tracking-[-0.045em]"
+                    >
+                      {line}
+                    </motion.h1>
                   ))}
                 </div>
-              </motion.div>
-            </div>
 
-            <div className="lg:col-span-5 lg:justify-self-end">
-              <ReasoningHeroVisual />
+                <motion.p
+                  initial={{ opacity: 0, y: 24 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 1, delay: 0.42, ease }}
+                  className="mt-8 max-w-[700px] text-base leading-8 text-[var(--text-secondary)] md:text-lg"
+                >
+                  InsightAI autonomously profiles datasets, uncovers patterns,
+                  explains business implications, and recommends machine
+                  learning strategies through an 11-phase reasoning workflow.
+                </motion.p>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 24 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 1, delay: 0.56, ease }}
+                  className="mt-8 flex flex-col items-start gap-4 sm:mt-8 sm:flex-row"
+                >
+                  <button
+                    onClick={launchAnalysisView}
+                    className="group inline-flex items-center gap-3 rounded-full bg-[var(--accent)] px-7 py-4 text-base font-medium text-[#0A0D12] shadow-[0_0_40px_rgba(198,168,106,0.24)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_56px_rgba(198,168,106,0.35)]"
+                  >
+                    Launch Analysis
+                    <ArrowRight className="h-5 w-5 transition-transform duration-300 group-hover:translate-x-1" />
+                  </button>
+                  <a
+                    href="#reasoning-engine"
+                    className="rounded-full border border-[var(--border)] bg-[rgba(255,255,255,0.02)] px-7 py-4 text-base text-[var(--text-primary)] transition duration-300 hover:border-[rgba(198,168,106,0.28)] hover:bg-[rgba(255,255,255,0.04)]"
+                  >
+                    Explore Workflow
+                  </a>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 24 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 1, delay: 0.72, ease }}
+                  className="mt-12 max-w-[760px] rounded-[28px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(30,38,49,0.86),rgba(17,22,29,0.86))] px-5 py-4 shadow-[0_25px_120px_rgba(0,0,0,0.28)]"
+                >
+                  <div className="mb-3 flex items-center justify-between gap-4">
+                    <p className="text-sm uppercase tracking-[0.24em] text-[var(--text-secondary)]">
+                      11-Phase Reasoning Pipeline
+                    </p>
+                    <div className="h-px flex-1 bg-[linear-gradient(90deg,transparent,rgba(198,168,106,0.45),transparent)]" />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--text-primary)] md:gap-4">
+                    {[
+                      "Dataset Understanding",
+                      "Data Quality",
+                      "EDA",
+                      "Insights",
+                      "ML Strategy",
+                    ].map((item, index) => (
+                      <div key={item} className="flex items-center gap-3">
+                        <motion.span
+                          initial={{ opacity: 0.45 }}
+                          animate={{ opacity: [0.45, 1, 0.45] }}
+                          transition={{
+                            duration: 3.8,
+                            delay: index * 0.28,
+                            repeat: Number.POSITIVE_INFINITY,
+                            ease: "easeInOut",
+                          }}
+                          className="rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-3 py-2"
+                        >
+                          {item}
+                        </motion.span>
+                        {index < 4 && (
+                          <span className="text-[var(--accent)]">→</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              </div>
+
+              <div className="lg:col-span-5 lg:justify-self-end">
+                <ReasoningHeroVisual />
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
         )}
 
-        <section className={`${PAGE_CONTAINER} grid min-h-screen items-center ${SECTION_STACK}`}>
+        <section
+          className={`${PAGE_CONTAINER} grid min-h-screen items-center ${SECTION_STACK}`}
+        >
           <div className="grid items-center gap-6 lg:grid-cols-12">
             <div className="lg:col-span-7 max-w-[760px]">
               <motion.div
@@ -579,7 +610,10 @@ function ConsolePage() {
               </motion.div>
             </div>
 
-            <div ref={consoleRef} className="lg:col-span-5 lg:justify-self-end lg:w-full lg:max-w-[700px]">
+            <div
+              ref={consoleRef}
+              className="lg:col-span-5 lg:justify-self-end lg:w-full lg:max-w-[700px]"
+            >
               <UploadConsole
                 file={selectedFile}
                 uploadMeta={uploadMeta}
@@ -600,228 +634,278 @@ function ConsolePage() {
 
         {showAdvancedSections && (
           <>
-        <section id="pipeline" className={`${PAGE_CONTAINER} ${SECTION_STACK}`}>
-          <SectionHeader
-            eyebrow="Pipeline Overview"
-            title="How the autonomous reasoning workflow operates."
-            body="Every stage rehydrates from live analytical output and stays aligned to one operating rhythm."
-          />
+            <section
+              id="pipeline"
+              className={`${PAGE_CONTAINER} ${SECTION_STACK}`}
+            >
+              <SectionHeader
+                eyebrow="Pipeline Overview"
+                title="How the autonomous reasoning workflow operates."
+                body="Every stage rehydrates from live analytical output and stays aligned to one operating rhythm."
+              />
 
-          <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {phaseLabels.map((label, index) => (
-              <motion.article
-                key={label}
-                initial={{ opacity: 0, y: 28 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.2 }}
-                transition={{ duration: 0.7, delay: index * 0.04, ease }}
-                className={`rounded-[28px] border p-6 ${CARD_SIZES.sm} ${
-                  analysis && analysis.current_phase >= index + 1
-                    ? "border-[rgba(198,168,106,0.25)] bg-[linear-gradient(180deg,rgba(30,38,49,0.96),rgba(17,22,29,0.92))]"
-                    : "border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.95),rgba(17,22,29,0.92))]"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs uppercase tracking-[0.32em] text-[var(--accent)]">
-                    Phase {String(index + 1).padStart(2, "0")}
-                  </p>
-                  {analysis &&
-                  analysis.current_phase === index + 1 &&
-                  analysis.status === "processing" ? (
-                    <LoaderCircle className="h-5 w-5 animate-spin text-[var(--accent)]" />
-                  ) : (
-                    <div className="h-2 w-2 rounded-full bg-[rgba(255,255,255,0.2)]" />
-                  )}
-                </div>
-                <h3 className="mt-4 font-heading text-2xl tracking-[-0.03em]">
-                  {label}
-                </h3>
-                <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
-                  {getPhaseDescription(label, result)}
-                </p>
-              </motion.article>
-            ))}
-          </div>
-        </section>
-
-        <section
-          id="workspace"
-          className={`${PAGE_CONTAINER} ${SECTION_STACK}`}
-        >
-          <SectionHeader
-            eyebrow="Analysis Workspace"
-            title="What is AI thinking right now?"
-            body="Reasoning Feed, Business Insights, and ML Advisor operate as one workspace for interpreting live analysis."
-          />
-
-          <div className="mt-6 grid gap-6 lg:grid-cols-12">
-            <div className="lg:col-span-7 h-full">
-              <div className={`h-full rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.lg}`}>
-                <div className="flex items-center justify-between gap-4 border-b border-[rgba(255,255,255,0.06)] pb-5">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-                      Reasoning Feed
-                    </p>
-                    <h3 className="mt-2 font-heading text-2xl tracking-[-0.03em]">
-                      Observation to recommendation.
+              <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {phaseLabels.map((label, index) => (
+                  <motion.article
+                    key={label}
+                    initial={{ opacity: 0, y: 28 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, amount: 0.2 }}
+                    transition={{ duration: 0.7, delay: index * 0.04, ease }}
+                    className={`rounded-[28px] border p-6 ${CARD_SIZES.sm} ${
+                      analysis && analysis.current_phase >= index + 1
+                        ? "border-[rgba(198,168,106,0.25)] bg-[linear-gradient(180deg,rgba(30,38,49,0.96),rgba(17,22,29,0.92))]"
+                        : "border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.95),rgba(17,22,29,0.92))]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs uppercase tracking-[0.32em] text-[var(--accent)]">
+                        Phase {String(index + 1).padStart(2, "0")}
+                      </p>
+                      {analysis &&
+                      analysis.current_phase === index + 1 &&
+                      analysis.status === "processing" ? (
+                        <LoaderCircle className="h-5 w-5 animate-spin text-[var(--accent)]" />
+                      ) : (
+                        <div className="h-2 w-2 rounded-full bg-[rgba(255,255,255,0.2)]" />
+                      )}
+                    </div>
+                    <h3 className="mt-4 font-heading text-2xl tracking-[-0.03em]">
+                      {label}
                     </h3>
-                  </div>
-                  <div className="rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 py-2 text-xs uppercase tracking-[0.22em] text-[var(--text-secondary)]">
-                    {result ? "Active" : "Pending"}
-                  </div>
-                </div>
-                <div className="mt-6">
-                  {(result?.reasoning_engine ?? []).length > 0 ? (
-                    result?.reasoning_engine.map((step, index) => (
-                      <motion.div
-                        key={`${step.observation}-${index}`}
-                        initial={{ opacity: 0, x: -16 }}
-                        whileInView={{ opacity: 1, x: 0 }}
-                        viewport={{ once: true, amount: 0.2 }}
-                        transition={{ duration: 0.7, delay: index * 0.08, ease }}
-                        className="relative mb-6 pl-12 last:mb-0"
-                      >
-                        {index < result.reasoning_engine.length - 1 && (
-                          <div className="absolute left-[17px] top-9 h-[calc(100%-4px)] w-px bg-[linear-gradient(180deg,rgba(198,168,106,0.55),rgba(198,168,106,0.02))]" />
-                        )}
-                        <div className="absolute left-0 top-1 flex h-9 w-9 items-center justify-center rounded-full border border-[rgba(198,168,106,0.35)] bg-[rgba(198,168,106,0.08)] text-sm text-[var(--accent)]">
-                          {index + 1}
-                        </div>
-                        <div className="rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-5">
-                          <ReasoningRow label="Observation" value={step.observation} />
-                          <ReasoningRow label="Inference" value={step.inference} />
-                          <ReasoningRow label="Business Meaning" value={step.business_meaning} />
-                          <ReasoningRow label="Recommendation" value={step.recommendation} />
-                          <ReasoningRow label="Expected Outcome" value={step.expected_outcome} />
-                        </div>
-                      </motion.div>
-                    ))
-                  ) : (
-                    <CompactSkeleton label="Pending" title="Reasoning Feed" detail="Waiting for analysis" />
-                  )}
-                </div>
+                    <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
+                      {getPhaseDescription(label, result)}
+                    </p>
+                  </motion.article>
+                ))}
               </div>
-            </div>
+            </section>
 
-            <div className="lg:col-span-5 space-y-6 h-full">
-              <InsightPanel
-                title="Business Insights"
-                icon={BriefcaseBusiness}
-                source={result?.business_insights.source}
-                items={
-                  result?.business_insights.key_findings.map((item) => ({
-                    title: item.finding,
-                    body: `${item.insight} ${item.recommendation} ${item.expected_impact}`,
-                  })) ?? []
-                }
+            <section
+              id="workspace"
+              className={`${PAGE_CONTAINER} ${SECTION_STACK}`}
+            >
+              <SectionHeader
+                eyebrow="Analysis Workspace"
+                title="What is AI thinking right now?"
+                body="Reasoning Feed, Business Insights, and ML Advisor operate as one workspace for interpreting live analysis."
               />
-              <InsightPanel
-                title="ML Advisor"
-                icon={Radar}
-                source={result?.model_recommendations.source}
-                items={
-                  result?.model_recommendations.ranked_models.map((item) => ({
-                    title: `${item.model_name} · ${item.confidence_score}%`,
-                    body: item.why_recommended,
-                  })) ?? []
-                }
-              />
-            </div>
-          </div>
-        </section>
 
-        <section id="reports" className={`${PAGE_CONTAINER} ${SECTION_STACK}`}>
-          <SectionHeader
-            eyebrow="Executive Report"
-            title="What should I do?"
-            body="Executive report is primary artifact. Metrics exist only to support decision-making."
-          />
-
-          <div className="mt-6 grid gap-6 lg:grid-cols-12">
-            <div className="lg:col-span-8 h-full">
-              <ExecutiveReportCard result={result} />
-            </div>
-
-            <div className="lg:col-span-4 h-full">
-              <div className={`grid gap-6 ${CARD_SIZES.lg}`}>
-                <div className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.md}`}>
-                  <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-                    Report Summary
-                  </p>
-                  <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
-                    Dataset health, business impact, and ML strategy are consolidated into one executive briefing.
-                  </p>
-                </div>
-                <div className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.md}`}>
-                  <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-                    Export Status
-                  </p>
-                  <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
-                    PDF report becomes available when backend report generator completes.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="supporting-analytics" className={`${PAGE_CONTAINER} ${SECTION_STACK}`}>
-          <SectionHeader
-            eyebrow="Supporting Analytics"
-            title="Evidence & Confidence"
-            body="EDA and model recommendations provide supporting evidence for executive decisions."
-          />
-
-          <div className="mt-6">
-            <KpiGrid result={result} />
-          </div>
-
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            <ChartGallery result={result} />
-            <div className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.md}`}>
-              <div className="flex items-center gap-3">
-                <div className="rounded-2xl border border-[rgba(198,168,106,0.28)] bg-[rgba(198,168,106,0.08)] p-3">
-                  <Radar className="h-5 w-5 text-[var(--accent)]" />
-                </div>
-                <div>
-                  <p className="font-heading text-2xl tracking-[-0.03em]">
-                    ML Recommendations
-                  </p>
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    Ranked models and confidence scores support report decisions.
-                  </p>
-                </div>
-              </div>
-              <div className="mt-6">
-                {result?.model_recommendations.ranked_models.length ? (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {result.model_recommendations.ranked_models.slice(0, 4).map((item) => (
-                      <div
-                        key={item.model_name}
-                        className="rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-4"
-                      >
-                        <div className="flex items-center justify-between gap-4">
-                          <p className="font-heading text-xl tracking-[-0.03em]">
-                            {item.model_name}
-                          </p>
-                          <p className="text-xs uppercase tracking-[0.24em] text-[var(--accent)]">
-                            {item.confidence_score}%
-                          </p>
-                        </div>
-                        <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
-                          {item.why_recommended}
+              <div className="mt-6 grid gap-6 lg:grid-cols-12">
+                <div className="lg:col-span-7 h-full">
+                  <div
+                    className={`h-full rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.lg}`}
+                  >
+                    <div className="flex items-center justify-between gap-4 border-b border-[rgba(255,255,255,0.06)] pb-5">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
+                          Reasoning Feed
                         </p>
+                        <h3 className="mt-2 font-heading text-2xl tracking-[-0.03em]">
+                          Observation to recommendation.
+                        </h3>
                       </div>
-                    ))}
+                      <div className="rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 py-2 text-xs uppercase tracking-[0.22em] text-[var(--text-secondary)]">
+                        {result ? "Active" : "Pending"}
+                      </div>
+                    </div>
+                    <div className="mt-6">
+                      {(result?.reasoning_engine ?? []).length > 0 ? (
+                        result?.reasoning_engine.map((step, index) => (
+                          <motion.div
+                            key={`${step.observation}-${index}`}
+                            initial={{ opacity: 0, x: -16 }}
+                            whileInView={{ opacity: 1, x: 0 }}
+                            viewport={{ once: true, amount: 0.2 }}
+                            transition={{
+                              duration: 0.7,
+                              delay: index * 0.08,
+                              ease,
+                            }}
+                            className="relative mb-6 pl-12 last:mb-0"
+                          >
+                            {index < result.reasoning_engine.length - 1 && (
+                              <div className="absolute left-[17px] top-9 h-[calc(100%-4px)] w-px bg-[linear-gradient(180deg,rgba(198,168,106,0.55),rgba(198,168,106,0.02))]" />
+                            )}
+                            <div className="absolute left-0 top-1 flex h-9 w-9 items-center justify-center rounded-full border border-[rgba(198,168,106,0.35)] bg-[rgba(198,168,106,0.08)] text-sm text-[var(--accent)]">
+                              {index + 1}
+                            </div>
+                            <div className="rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-5">
+                              <ReasoningRow
+                                label="Observation"
+                                value={step.observation}
+                              />
+                              <ReasoningRow
+                                label="Inference"
+                                value={step.inference}
+                              />
+                              <ReasoningRow
+                                label="Business Meaning"
+                                value={step.business_meaning}
+                              />
+                              <ReasoningRow
+                                label="Recommendation"
+                                value={step.recommendation}
+                              />
+                              <ReasoningRow
+                                label="Expected Outcome"
+                                value={step.expected_outcome}
+                              />
+                            </div>
+                          </motion.div>
+                        ))
+                      ) : (
+                        <CompactSkeleton
+                          label="Pending"
+                          title="Reasoning Feed"
+                          detail="Waiting for analysis"
+                        />
+                      )}
+                    </div>
                   </div>
-                ) : (
-                  <CompactSkeleton label="Pending" title="ML Recommendations" detail="Waiting for analysis" />
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
+                </div>
 
+                <div className="lg:col-span-5 space-y-6 h-full">
+                  <InsightPanel
+                    title="Business Insights"
+                    icon={BriefcaseBusiness}
+                    source={result?.business_insights.source}
+                    items={
+                      result?.business_insights.key_findings.map((item) => ({
+                        title: item.finding,
+                        body: `${item.insight} ${item.recommendation} ${item.expected_impact}`,
+                      })) ?? []
+                    }
+                  />
+                  <InsightPanel
+                    title="ML Advisor"
+                    icon={Radar}
+                    source={result?.model_recommendations.source}
+                    items={
+                      result?.model_recommendations.ranked_models.map(
+                        (item) => ({
+                          title: `${item.model_name} · ${item.confidence_score}%`,
+                          body: item.why_recommended,
+                        }),
+                      ) ?? []
+                    }
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section
+              id="reports"
+              className={`${PAGE_CONTAINER} ${SECTION_STACK}`}
+            >
+              <SectionHeader
+                eyebrow="Executive Report"
+                title="What should I do?"
+                body="Executive report is primary artifact. Metrics exist only to support decision-making."
+              />
+
+              <div className="mt-6 grid gap-6 lg:grid-cols-12">
+                <div className="lg:col-span-8 h-full">
+                  <ExecutiveReportCard result={result} />
+                </div>
+
+                <div className="lg:col-span-4 h-full">
+                  <div className={`grid gap-6 ${CARD_SIZES.lg}`}>
+                    <div
+                      className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.md}`}
+                    >
+                      <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
+                        Report Summary
+                      </p>
+                      <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
+                        Dataset health, business impact, and ML strategy are
+                        consolidated into one executive briefing.
+                      </p>
+                    </div>
+                    <div
+                      className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.md}`}
+                    >
+                      <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
+                        Export Status
+                      </p>
+                      <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
+                        PDF report becomes available when backend report
+                        generator completes.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section
+              id="supporting-analytics"
+              className={`${PAGE_CONTAINER} ${SECTION_STACK}`}
+            >
+              <SectionHeader
+                eyebrow="Supporting Analytics"
+                title="Evidence & Confidence"
+                body="EDA and model recommendations provide supporting evidence for executive decisions."
+              />
+
+              <div className="mt-6">
+                <KpiGrid result={result} />
+              </div>
+
+              <div className="mt-6 grid gap-6 lg:grid-cols-2">
+                <ChartGallery result={result} />
+                <div
+                  className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.md}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-2xl border border-[rgba(198,168,106,0.28)] bg-[rgba(198,168,106,0.08)] p-3">
+                      <Radar className="h-5 w-5 text-[var(--accent)]" />
+                    </div>
+                    <div>
+                      <p className="font-heading text-2xl tracking-[-0.03em]">
+                        ML Recommendations
+                      </p>
+                      <p className="text-sm text-[var(--text-secondary)]">
+                        Ranked models and confidence scores support report
+                        decisions.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-6">
+                    {result?.model_recommendations.ranked_models.length ? (
+                      <div className="grid gap-4 md:grid-cols-2">
+                        {result.model_recommendations.ranked_models
+                          .slice(0, 4)
+                          .map((item) => (
+                            <div
+                              key={item.model_name}
+                              className="rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-4"
+                            >
+                              <div className="flex items-center justify-between gap-4">
+                                <p className="font-heading text-xl tracking-[-0.03em]">
+                                  {item.model_name}
+                                </p>
+                                <p className="text-xs uppercase tracking-[0.24em] text-[var(--accent)]">
+                                  {item.confidence_score}%
+                                </p>
+                              </div>
+                              <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
+                                {item.why_recommended}
+                              </p>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <CompactSkeleton
+                        label="Pending"
+                        title="ML Recommendations"
+                        detail="Waiting for analysis"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
           </>
         )}
       </main>
@@ -868,11 +952,17 @@ function UploadConsole({
   const result = analysis?.result ?? null;
   const qualityScore = result?.data_quality.dataset_health_score ?? null;
   const problemType = result?.ml_problem_detection.problem_type ?? null;
-  const problemConfidence = result?.ml_problem_detection.confidence_score ?? null;
+  const problemConfidence =
+    result?.ml_problem_detection.confidence_score ?? null;
   const intake = datasetMeta ?? uploadMeta;
   const rowsValue = intake?.rows ?? result?.dataset_summary.row_count ?? null;
-  const columnsValue = intake?.columns ?? result?.dataset_summary.column_count ?? null;
-  const missingValues = result?.data_quality.missing_values.reduce((sum, item) => sum + item.missing_count, 0) ?? null;
+  const columnsValue =
+    intake?.columns ?? result?.dataset_summary.column_count ?? null;
+  const missingValues =
+    result?.data_quality.missing_values.reduce(
+      (sum, item) => sum + item.missing_count,
+      0,
+    ) ?? null;
 
   return (
     <motion.div
@@ -899,7 +989,7 @@ function UploadConsole({
                 ? "border-[rgba(199,102,102,0.3)] bg-[rgba(199,102,102,0.08)] text-[var(--danger)]"
                 : connectionState === "demo"
                   ? "border-[rgba(198,168,106,0.3)] bg-[rgba(198,168,106,0.08)] text-[var(--accent)]"
-                : "border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[var(--text-secondary)]"
+                  : "border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[var(--text-secondary)]"
           }`}
         >
           {statusMessage}
@@ -948,18 +1038,20 @@ function UploadConsole({
         </div>
       )}
 
-      {connectionState !== "connected" && connectionState !== "checking" && !error && (
-        <div className="mt-5 rounded-[24px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-4">
-          <p className="text-xs uppercase tracking-[0.24em] text-[var(--accent)]">
-            Connection Failed
-          </p>
-          <div className="mt-3 grid gap-2 text-sm text-[var(--text-secondary)]">
-            <p>Status Code: unavailable</p>
-            <p>Error Message: analysis engine not reachable</p>
-            <p>Recommended Fix: verify backend env and Azure configuration</p>
+      {connectionState !== "connected" &&
+        connectionState !== "checking" &&
+        !error && (
+          <div className="mt-5 rounded-[24px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-4">
+            <p className="text-xs uppercase tracking-[0.24em] text-[var(--accent)]">
+              Connection Failed
+            </p>
+            <div className="mt-3 grid gap-2 text-sm text-[var(--text-secondary)]">
+              <p>Status Code: unavailable</p>
+              <p>Error Message: analysis engine not reachable</p>
+              <p>Recommended Fix: verify backend env and Azure configuration</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <InfoCard
@@ -1020,7 +1112,7 @@ function UploadConsole({
         />
         <InfoCard
           title="Status"
-          value={busy ? "Processing" : analysis?.status ?? "Ready"}
+          value={busy ? "Processing" : (analysis?.status ?? "Ready")}
           icon={ShieldCheck}
         />
       </div>
@@ -1074,7 +1166,11 @@ function UploadConsole({
           type="button"
           onClick={onLaunchAnalysis}
           disabled={busy || connectionState !== "connected" || !file}
-          title={connectionState !== "connected" ? "Connect AI inference service to begin reasoning pipeline." : undefined}
+          title={
+            connectionState !== "connected"
+              ? "Connect AI inference service to begin reasoning pipeline."
+              : undefined
+          }
           className="group inline-flex items-center gap-3 rounded-full bg-[var(--accent)] px-7 py-4 text-base font-medium text-[#0A0D12] shadow-[0_0_40px_rgba(198,168,106,0.24)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_56px_rgba(198,168,106,0.35)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy
@@ -1118,7 +1214,9 @@ function SectionHeader({
   align?: "left" | "center";
 }) {
   const layout =
-    align === "left" ? "max-w-[520px] text-left" : "mx-auto max-w-3xl text-center";
+    align === "left"
+      ? "max-w-[520px] text-left"
+      : "mx-auto max-w-3xl text-center";
   return (
     <div className={layout}>
       <p className="text-xs uppercase tracking-[0.34em] text-[var(--accent)]">
@@ -1200,7 +1298,9 @@ function ReasoningHeroVisual() {
                   {index + 1}
                 </motion.div>
                 <div className="flex-1">
-                  <p className="font-heading text-xl tracking-[-0.03em]">{stage}</p>
+                  <p className="font-heading text-xl tracking-[-0.03em]">
+                    {stage}
+                  </p>
                 </div>
               </motion.div>
 
@@ -1208,7 +1308,11 @@ function ReasoningHeroVisual() {
                 <motion.div
                   initial={{ scaleY: 0, opacity: 0 }}
                   animate={{ scaleY: 1, opacity: 1 }}
-                  transition={{ duration: 0.7, delay: 0.18 + index * 0.16, ease }}
+                  transition={{
+                    duration: 0.7,
+                    delay: 0.18 + index * 0.16,
+                    ease,
+                  }}
                   className="absolute left-[23px] top-[54px] h-4 w-px origin-top bg-[linear-gradient(180deg,rgba(198,168,106,0.78),rgba(198,168,106,0.05))]"
                 />
               )}
@@ -1230,7 +1334,9 @@ function InfoCard({
   icon: typeof Database;
 }) {
   return (
-    <div className={`rounded-[24px] border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-5 ${CARD_SIZES.sm}`}>
+    <div
+      className={`rounded-[24px] border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-5 ${CARD_SIZES.sm}`}
+    >
       <div className="flex items-center gap-3">
         <div className="rounded-2xl border border-[rgba(198,168,106,0.28)] bg-[rgba(198,168,106,0.08)] p-2.5">
           <Icon className="h-4 w-4 text-[var(--accent)]" />
@@ -1299,7 +1405,11 @@ function InsightPanel({
             </div>
           ))
         ) : (
-          <CompactSkeleton label="Pending" title={title} detail="Waiting for analysis" />
+          <CompactSkeleton
+            label="Pending"
+            title={title}
+            detail="Waiting for analysis"
+          />
         )}
       </div>
     </div>
@@ -1458,7 +1568,9 @@ function ExecutiveReportCard({ result }: { result: AnalysisResult | null }) {
           />
           <ReportMetric
             label="Recommended ML Strategy"
-            value={result.model_recommendations.ranked_models[0]?.model_name ?? "—"}
+            value={
+              result.model_recommendations.ranked_models[0]?.model_name ?? "—"
+            }
           />
           <ReportMetric label="Export Status" value="Ready" />
         </div>
@@ -1476,7 +1588,10 @@ function ExecutiveReportCard({ result }: { result: AnalysisResult | null }) {
             Generated {formatTimestamp(result.created_at)}
           </span>
           <span className="rounded-full border border-[rgba(255,255,255,0.08)] px-3 py-2">
-            Confidence {result.model_recommendations.ranked_models[0]?.confidence_score ?? 0}%
+            Confidence{" "}
+            {result.model_recommendations.ranked_models[0]?.confidence_score ??
+              0}
+            %
           </span>
         </div>
       </div>
@@ -1499,7 +1614,9 @@ function ReportMetric({ label, value }: { label: string; value: string }) {
 
 function ChartGallery({ result }: { result: AnalysisResult | null }) {
   return (
-    <div className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 md:p-8 ${CARD_SIZES.md}`}>
+    <div
+      className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 md:p-8 ${CARD_SIZES.md}`}
+    >
       <div className="flex items-center gap-3">
         <div className="rounded-2xl border border-[rgba(198,168,106,0.28)] bg-[rgba(198,168,106,0.08)] p-3">
           <FileText className="h-5 w-5 text-[var(--accent)]" />
@@ -1513,13 +1630,21 @@ function ChartGallery({ result }: { result: AnalysisResult | null }) {
           </p>
         </div>
       </div>
+      <div className="mt-4 rounded-[22px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-4 text-sm text-[var(--text-secondary)]">
+        {result?.data_quality.cleaning_summary ??
+          "Auto-cleaning runs before analysis to normalize missing values, duplicates, and outlier ranges."}
+      </div>
       <div className="mt-6 grid gap-5">
         {result?.eda.charts.length ? (
           result.eda.charts.map((chart) => (
             <MiniChart key={chart.chart_id} chart={chart} />
           ))
         ) : (
-          <CompactSkeleton label="Pending" title="EDA Visuals" detail="Waiting for analysis" />
+          <CompactSkeleton
+            label="Pending"
+            title="EDA Visuals"
+            detail="Waiting for analysis"
+          />
         )}
       </div>
     </div>
@@ -1529,7 +1654,11 @@ function ChartGallery({ result }: { result: AnalysisResult | null }) {
 function MiniChart({
   chart,
 }: {
-  chart: { title: string; data: Record<string, unknown>[] };
+  chart: {
+    title: string;
+    chart_type?: string;
+    data: Record<string, unknown>[];
+  };
 }) {
   const firstSeries = chart.data[0];
   const values = Array.isArray(firstSeries?.y)
@@ -1539,25 +1668,40 @@ function MiniChart({
     ? (firstSeries.x as (string | number)[])
     : [];
   const max = Math.max(...values, 1);
+  const displayValues = values.slice(0, 6);
+  const displayLabels = labels.slice(0, 6);
 
   return (
     <div className="rounded-[24px] border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.025)] p-5">
       <p className="font-heading text-xl tracking-[-0.03em]">{chart.title}</p>
+      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">
+        {chart.chart_type ?? "bar"} chart
+      </p>
       <div className="mt-5 space-y-3">
-        {values.slice(0, 6).map((value, index) => (
-          <div key={`${labels[index]}-${value}`}>
-            <div className="mb-2 flex items-center justify-between gap-4 text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">
-              <span>{String(labels[index])}</span>
-              <span>{value}</span>
+        {displayValues.length ? (
+          displayValues.map((value, index) => (
+            <div key={`${displayLabels[index] ?? index}-${value}`}>
+              <div className="mb-2 flex items-center justify-between gap-4 text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">
+                <span>
+                  {String(displayLabels[index] ?? `Series ${index + 1}`)}
+                </span>
+                <span>{Number(value).toLocaleString()}</span>
+              </div>
+              <div className="h-2 rounded-full bg-[rgba(255,255,255,0.08)]">
+                <div
+                  className="h-full rounded-full bg-[linear-gradient(90deg,#C6A86A,#F0E0B7)]"
+                  style={{
+                    width: `${Math.min((Number(value) / max) * 100, 100)}%`,
+                  }}
+                />
+              </div>
             </div>
-            <div className="h-2 rounded-full bg-[rgba(255,255,255,0.08)]">
-              <div
-                className="h-full rounded-full bg-[linear-gradient(90deg,#C6A86A,#F0E0B7)]"
-                style={{ width: `${(value / max) * 100}%` }}
-              />
-            </div>
-          </div>
-        ))}
+          ))
+        ) : (
+          <p className="text-sm text-[var(--text-secondary)]">
+            No numeric points available for this chart yet.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1606,7 +1750,9 @@ async function parseDatasetFile(file: File) {
   const text = await file.text();
   const rows = parseCsvRows(text);
   const header = rows[0] ?? [];
-  const dataRows = rows.slice(1).filter((row) => row.some((cell) => cell.trim() !== ""));
+  const dataRows = rows
+    .slice(1)
+    .filter((row) => row.some((cell) => cell.trim() !== ""));
   const previewRows = dataRows.slice(0, 5).map((row) => {
     const record: Record<string, unknown> = {};
     header.forEach((column, index) => {
@@ -1622,7 +1768,9 @@ async function parseDatasetFile(file: File) {
     return {
       name: column || `column_${index + 1}`,
       dtype: inferColumnType(dataRows.map((row) => row[index] ?? "")),
-      nullable: dataRows.some((row) => !row[index] || row[index]?.trim() === ""),
+      nullable: dataRows.some(
+        (row) => !row[index] || row[index]?.trim() === "",
+      ),
       sample_values: sampleValues,
     };
   });
@@ -1746,7 +1894,11 @@ function getPhaseDescription(label: string, result: AnalysisResult | null) {
 function App() {
   const location = useLocation();
 
-  return location.pathname.startsWith("/console") ? <ConsolePage /> : <HomePage />;
+  return location.pathname.startsWith("/console") ? (
+    <ConsolePage />
+  ) : (
+    <HomePage />
+  );
 }
 
 export default App;

@@ -62,6 +62,7 @@ class DataQualityReport(BaseModel):
     outliers: list[OutlierRecord]
     invalid_values: list[InvalidValueRecord]
     explanation: str
+    cleaning_summary: str | None = None
 
 
 class CleaningRecommendation(BaseModel):
@@ -79,6 +80,7 @@ class EdaCard(BaseModel):
 class PlotlyChart(BaseModel):
     chart_id: str
     title: str
+    chart_type: str = "bar"
     data: list[dict[str, Any]]
     layout: dict[str, Any]
 
@@ -192,6 +194,8 @@ class AnalysisStatus(BaseModel):
     progress_label: str
     result: AnalysisResult | None = None
     error: str | None = None
+    cache_key: str | None = None
+    cleaning_summary: str | None = None
 
 
 class AnalyzeRequest(BaseModel):

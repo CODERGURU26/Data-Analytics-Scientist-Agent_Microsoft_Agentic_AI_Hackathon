@@ -61,6 +61,65 @@ class AnalysisEngine:
         self.settings = settings
         self.azure = AzureOpenAIService(settings)
 
+    def _clean_dataframe(self, dataframe: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+        working = dataframe.copy()
+        summary_parts: list[str] = []
+
+        duplicate_count = int(working.duplicated().sum())
+        if duplicate_count:
+            working = working.drop_duplicates().reset_index(drop=True)
+            summary_parts.append(f"removed {duplicate_count} duplicate rows")
+
+        for column in working.columns:
+            series = working[column]
+            if pd.api.types.is_numeric_dtype(series):
+                missing_values = int(series.isna().sum())
+                if missing_values:
+                    fill_value = series.median()
+                    working[column] = series.fillna(fill_value)
+                    summary_parts.append(f"filled {missing_values} missing numeric values in {column}")
+                continue
+
+            text_series = series.astype("string")
+            missing_values = int(text_series.isna().sum())
+            if missing_values:
+                mode_value = text_series.mode(dropna=True)
+                fill_value = mode_value.iloc[0] if not mode_value.empty else "Unknown"
+                working[column] = text_series.fillna(fill_value).replace({"nan": "Unknown", "None": "Unknown"})
+                summary_parts.append(f"filled {missing_values} missing text values in {column}")
+
+            if series.dtype == "object":
+                numeric_like = pd.to_numeric(series, errors="coerce")
+                if numeric_like.notna().mean() > 0.9:
+                    working[column] = numeric_like
+                    summary_parts.append(f"coerced {column} to numeric")
+                else:
+                    try:
+                        datetime_like = pd.to_datetime(series, errors="coerce")
+                        if datetime_like.notna().mean() > 0.9:
+                            working[column] = datetime_like
+                            summary_parts.append(f"coerced {column} to datetime")
+                    except Exception:  # noqa: BLE001
+                        pass
+
+        numeric_columns = working.select_dtypes(include=[np.number]).columns.tolist()
+        for column in numeric_columns:
+            series = working[column]
+            q1 = series.quantile(0.25)
+            q3 = series.quantile(0.75)
+            iqr = q3 - q1
+            if iqr == 0:
+                continue
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            outlier_mask = (series < lower) | (series > upper)
+            if int(outlier_mask.sum()):
+                working[column] = series.clip(lower=lower, upper=upper)
+                summary_parts.append(f"capped outliers in {column}")
+
+        summary = "Auto-cleaning applied: " + "; ".join(summary_parts) if summary_parts else "Auto-cleaning applied: no changes required."
+        return working, summary
+
     def load_csv(self, file_path: Path, analysis_id: str, original_name: str) -> tuple[pd.DataFrame, UploadResponse]:
         try:
             dataframe = pd.read_csv(file_path)
@@ -103,20 +162,23 @@ class AnalysisEngine:
         filename: str,
         progress_callback,
     ) -> AnalysisResult:
-        dataset_summary = self._dataset_summary(dataframe)
+        cleaned_dataframe, cleaning_summary = self._clean_dataframe(dataframe)
+        dataset_summary = self._dataset_summary(cleaned_dataframe)
         await progress_callback(1, PHASE_LABELS[1])
 
-        data_quality = self._data_quality_report(dataframe)
+        data_quality = self._data_quality_report(cleaned_dataframe)
+        data_quality.cleaning_summary = cleaning_summary
         await progress_callback(2, PHASE_LABELS[2])
 
-        cleaning_recommendations = self._cleaning_recommendations(dataframe, data_quality)
+        cleaning_recommendations = self._cleaning_recommendations(cleaned_dataframe, data_quality)
         await progress_callback(3, PHASE_LABELS[3])
 
-        eda_report = self._eda_report(dataframe)
+        eda_input = cleaned_dataframe if len(cleaned_dataframe) <= 5000 else cleaned_dataframe.sample(n=5000, random_state=42)
+        eda_report = self._eda_report(eda_input)
         await progress_callback(4, PHASE_LABELS[4])
 
         await progress_callback(5, PHASE_LABELS[5])
-        ml_problem = self._detect_problem_type(dataframe)
+        ml_problem = self._detect_problem_type(cleaned_dataframe)
         business_insights = await self._business_insights(
             dataset_summary, data_quality, eda_report, ml_problem
         )
@@ -349,6 +411,8 @@ class AnalysisEngine:
 
     def _feature_candidates(self, dataframe: pd.DataFrame) -> list[dict[str, Any]]:
         df = dataframe.copy()
+        if len(df) > 5000:
+            df = df.sample(n=5000, random_state=42).reset_index(drop=True)
         numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
         if len(df.columns) < 2 or not numeric_columns:
             return []
@@ -393,6 +457,7 @@ class AnalysisEngine:
                     PlotlyChart(
                         chart_id="distribution-primary",
                         title=f"{first_numeric} distribution",
+                        chart_type="histogram",
                         data=[
                             {
                                 "type": "bar",
@@ -418,6 +483,7 @@ class AnalysisEngine:
                 PlotlyChart(
                     chart_id="category-top",
                     title=f"{top_column} breakdown",
+                    chart_type="bar",
                     data=[
                         {
                             "type": "bar",
