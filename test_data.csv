@@ -1,0 +1,11 @@
+customer_id,age,usage_hrs,monthly_revenue,churn,region
+1,34,12.5,45.0,0,North
+2,45,,67.2,1,South
+3,23,5.0,23.5,0,East
+4,,18.2,89.9,1,West
+5,34,12.5,45.0,0,North
+6,52,40.1,120.5,0,South
+7,29,15.6,55.0,0,East
+8,38,22.0,,1,West
+9,41,8.5,35.2,0,North
+1,34,12.5,45.0,0,North

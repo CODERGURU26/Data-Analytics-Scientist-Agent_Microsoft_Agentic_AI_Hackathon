@@ -4,7 +4,7 @@ import logging
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import numpy as np
 import pandas as pd
@@ -44,14 +44,14 @@ logger = logging.getLogger(__name__)
 PHASE_LABELS = {
     1: "Dataset Understanding",
     2: "Data Quality Assessment",
-    3: "Cleaning Recommendations",
-    4: "EDA Engine",
-    5: "Business Insight Generation",
+    3: "Cleaning Agent",
+    4: "EDA Agent",
+    5: "Business Insight Agent",
     6: "ML Problem Detection",
-    7: "Model Recommendation Engine",
-    8: "Reasoning Engine",
-    9: "Pipeline Blueprint",
-    10: "Evaluation Strategy",
+    7: "Model Recommendation Agent",
+    8: "Reasoning Agent",
+    9: "ML Pipeline Recommendation",
+    10: "Metrics Recommendation",
     11: "Executive Report",
 }
 
@@ -61,65 +61,7 @@ class AnalysisEngine:
         self.settings = settings
         self.azure = AzureOpenAIService(settings)
 
-    def _clean_dataframe(self, dataframe: pd.DataFrame) -> tuple[pd.DataFrame, str]:
-        working = dataframe.copy()
-        summary_parts: list[str] = []
-
-        duplicate_count = int(working.duplicated().sum())
-        if duplicate_count:
-            working = working.drop_duplicates().reset_index(drop=True)
-            summary_parts.append(f"removed {duplicate_count} duplicate rows")
-
-        for column in working.columns:
-            series = working[column]
-            if pd.api.types.is_numeric_dtype(series):
-                missing_values = int(series.isna().sum())
-                if missing_values:
-                    fill_value = series.median()
-                    working[column] = series.fillna(fill_value)
-                    summary_parts.append(f"filled {missing_values} missing numeric values in {column}")
-                continue
-
-            text_series = series.astype("string")
-            missing_values = int(text_series.isna().sum())
-            if missing_values:
-                mode_value = text_series.mode(dropna=True)
-                fill_value = mode_value.iloc[0] if not mode_value.empty else "Unknown"
-                working[column] = text_series.fillna(fill_value).replace({"nan": "Unknown", "None": "Unknown"})
-                summary_parts.append(f"filled {missing_values} missing text values in {column}")
-
-            if series.dtype == "object":
-                numeric_like = pd.to_numeric(series, errors="coerce")
-                if numeric_like.notna().mean() > 0.9:
-                    working[column] = numeric_like
-                    summary_parts.append(f"coerced {column} to numeric")
-                else:
-                    try:
-                        datetime_like = pd.to_datetime(series, errors="coerce")
-                        if datetime_like.notna().mean() > 0.9:
-                            working[column] = datetime_like
-                            summary_parts.append(f"coerced {column} to datetime")
-                    except Exception:  # noqa: BLE001
-                        pass
-
-        numeric_columns = working.select_dtypes(include=[np.number]).columns.tolist()
-        for column in numeric_columns:
-            series = working[column]
-            q1 = series.quantile(0.25)
-            q3 = series.quantile(0.75)
-            iqr = q3 - q1
-            if iqr == 0:
-                continue
-            lower = q1 - 1.5 * iqr
-            upper = q3 + 1.5 * iqr
-            outlier_mask = (series < lower) | (series > upper)
-            if int(outlier_mask.sum()):
-                working[column] = series.clip(lower=lower, upper=upper)
-                summary_parts.append(f"capped outliers in {column}")
-
-        summary = "Auto-cleaning applied: " + "; ".join(summary_parts) if summary_parts else "Auto-cleaning applied: no changes required."
-        return working, summary
-
+    # ── CSV Loading ──────────────────────────────────────────────────
     def load_csv(self, file_path: Path, analysis_id: str, original_name: str) -> tuple[pd.DataFrame, UploadResponse]:
         try:
             dataframe = pd.read_csv(file_path)
@@ -155,6 +97,152 @@ class AnalysisEngine:
         )
         return dataframe, response
 
+    # ── Streaming Analysis (yields per-phase output) ─────────────────
+    async def run_streaming_analysis(
+        self,
+        analysis_id: str,
+        dataframe: pd.DataFrame,
+        filename: str,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Yield phase events as dict: {phase, status, title, output}."""
+
+        # ── Phase 1: Dataset Understanding ───────────────────────────
+        yield {"phase": 1, "status": "running", "title": PHASE_LABELS[1]}
+        dataset_summary = self._dataset_summary(dataframe)
+        yield {
+            "phase": 1,
+            "status": "done",
+            "title": PHASE_LABELS[1],
+            "output": dataset_summary.model_dump(),
+        }
+
+        # ── Phase 2: Data Quality Assessment ────────────────────────
+        yield {"phase": 2, "status": "running", "title": PHASE_LABELS[2]}
+        data_quality = self._data_quality_report(dataframe)
+        yield {
+            "phase": 2,
+            "status": "done",
+            "title": PHASE_LABELS[2],
+            "output": data_quality.model_dump(),
+        }
+
+        # ── Phase 3: Cleaning Agent (actually cleans the data) ──────
+        yield {"phase": 3, "status": "running", "title": PHASE_LABELS[3]}
+        cleaned_dataframe, cleaning_summary = self._clean_dataframe(dataframe)
+        data_quality.cleaning_summary = cleaning_summary
+        cleaning_recommendations = self._cleaning_recommendations(cleaned_dataframe, data_quality)
+
+        cleaning_output = {
+            "cleaning_summary": cleaning_summary,
+            "rows_before": int(len(dataframe)),
+            "rows_after": int(len(cleaned_dataframe)),
+            "rows_removed": int(len(dataframe) - len(cleaned_dataframe)),
+            "recommendations": [r.model_dump() for r in cleaning_recommendations],
+        }
+        yield {
+            "phase": 3,
+            "status": "done",
+            "title": PHASE_LABELS[3],
+            "output": cleaning_output,
+        }
+
+        # ── Phase 4: EDA Agent ──────────────────────────────────────
+        yield {"phase": 4, "status": "running", "title": PHASE_LABELS[4]}
+        eda_input = cleaned_dataframe if len(cleaned_dataframe) <= 5000 else cleaned_dataframe.sample(n=5000, random_state=42)
+        eda_report = self._eda_report(eda_input)
+        yield {
+            "phase": 4,
+            "status": "done",
+            "title": PHASE_LABELS[4],
+            "output": eda_report.model_dump(),
+        }
+
+        # ── Phase 5: Business Insight Agent ─────────────────────────
+        yield {"phase": 5, "status": "running", "title": PHASE_LABELS[5]}
+        ml_problem = self._detect_problem_type(cleaned_dataframe)
+        business_insights = await self._business_insights(
+            dataset_summary, data_quality, eda_report, ml_problem
+        )
+        yield {
+            "phase": 5,
+            "status": "done",
+            "title": PHASE_LABELS[5],
+            "output": business_insights.model_dump(),
+        }
+
+        # ── Phase 6: ML Problem Detection ──────────────────────────
+        yield {"phase": 6, "status": "running", "title": PHASE_LABELS[6]}
+        yield {
+            "phase": 6,
+            "status": "done",
+            "title": PHASE_LABELS[6],
+            "output": ml_problem.model_dump(),
+        }
+
+        # ── Phase 7: Model Recommendation Agent ────────────────────
+        yield {"phase": 7, "status": "running", "title": PHASE_LABELS[7]}
+        model_recommendations = await self._model_recommendations(
+            dataset_summary, data_quality, ml_problem
+        )
+        yield {
+            "phase": 7,
+            "status": "done",
+            "title": PHASE_LABELS[7],
+            "output": model_recommendations.model_dump(),
+        }
+
+        # ── Phase 8: Reasoning Agent ───────────────────────────────
+        yield {"phase": 8, "status": "running", "title": PHASE_LABELS[8]}
+        reasoning_engine = await self._reasoning_engine(
+            dataset_summary, data_quality, business_insights, model_recommendations
+        )
+        yield {
+            "phase": 8,
+            "status": "done",
+            "title": PHASE_LABELS[8],
+            "output": [step.model_dump() for step in reasoning_engine],
+        }
+
+        # ── Phase 9: ML Pipeline Recommendation ───────────────────
+        yield {"phase": 9, "status": "running", "title": PHASE_LABELS[9]}
+        pipeline_blueprint = self._pipeline_blueprint(
+            dataset_summary, data_quality, ml_problem, cleaning_recommendations
+        )
+        yield {
+            "phase": 9,
+            "status": "done",
+            "title": PHASE_LABELS[9],
+            "output": [stage.model_dump() for stage in pipeline_blueprint],
+        }
+
+        # ── Phase 10: Metrics Recommendation ───────────────────────
+        yield {"phase": 10, "status": "running", "title": PHASE_LABELS[10]}
+        evaluation_strategy = self._evaluation_strategy(ml_problem.problem_type)
+        yield {
+            "phase": 10,
+            "status": "done",
+            "title": PHASE_LABELS[10],
+            "output": evaluation_strategy.model_dump(),
+        }
+
+        # ── Phase 11: Executive Report ─────────────────────────────
+        yield {"phase": 11, "status": "running", "title": PHASE_LABELS[11]}
+        executive_report = await self._executive_report(
+            analysis_id,
+            dataset_summary,
+            data_quality,
+            business_insights,
+            ml_problem,
+            model_recommendations,
+        )
+        yield {
+            "phase": 11,
+            "status": "done",
+            "title": PHASE_LABELS[11],
+            "output": executive_report.model_dump(),
+        }
+
+    # ── Legacy full analysis (kept for cache-hit path) ──────────────
     async def run_full_analysis(
         self,
         analysis_id: str,
@@ -228,6 +316,84 @@ class AnalysisEngine:
             evaluation_strategy=evaluation_strategy,
             executive_report=executive_report,
         )
+
+    # ── Phase implementations ───────────────────────────────────────
+
+    def _clean_dataframe(self, dataframe: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+        working = dataframe.copy()
+        summary_parts: list[str] = []
+
+        duplicate_count = int(working.duplicated().sum())
+        if duplicate_count:
+            working = working.drop_duplicates().reset_index(drop=True)
+            summary_parts.append(f"removed {duplicate_count} duplicate rows")
+
+        for column in working.columns:
+            series = working[column]
+            if series.dtype == "object":
+                numeric_like = pd.to_numeric(series, errors="coerce")
+                if numeric_like.notna().mean() > 0.9:
+                    working[column] = numeric_like
+                    series = numeric_like
+                    summary_parts.append(f"coerced {column} to numeric")
+                else:
+                    try:
+                         datetime_like = pd.to_datetime(series, errors="coerce")
+                         if datetime_like.notna().mean() > 0.9:
+                             working[column] = datetime_like
+                             series = datetime_like
+                             summary_parts.append(f"coerced {column} to datetime")
+                    except Exception:  # noqa: BLE001
+                         pass
+
+            if pd.api.types.is_numeric_dtype(series):
+                missing_values = int(series.isna().sum())
+                if missing_values:
+                    mean_val = series.mean()
+                    if not pd.isna(mean_val):
+                        working[column] = series.fillna(mean_val)
+                        summary_parts.append(f"filled {missing_values} missing numeric values in {column} with mean ({mean_val:.2f})")
+                    else:
+                        working = working.dropna(subset=[column]).reset_index(drop=True)
+                        summary_parts.append(f"removed rows with unfillable nulls in {column}")
+                continue
+
+            # Categorical/Other columns
+            missing_values = int(series.isna().sum())
+            if missing_values:
+                mode_value = series.mode(dropna=True)
+                if not mode_value.empty:
+                    fill_value = mode_value.iloc[0]
+                    working[column] = series.fillna(fill_value)
+                    summary_parts.append(f"filled {missing_values} missing categorical values in {column} with mode ('{fill_value}')")
+                else:
+                    working = working.dropna(subset=[column]).reset_index(drop=True)
+                    summary_parts.append(f"removed rows with unfillable nulls in {column}")
+
+        # Remove rows where critical columns are entirely unfillable (more than 50% missing across row)
+        initial_row_count = len(working)
+        working = working.dropna(thresh=max(1, int(len(working.columns) * 0.5))).reset_index(drop=True)
+        dropped_sparse = initial_row_count - len(working)
+        if dropped_sparse:
+            summary_parts.append(f"removed {dropped_sparse} rows with >50% missing values")
+
+        numeric_columns = working.select_dtypes(include=[np.number]).columns.tolist()
+        for column in numeric_columns:
+            series = working[column]
+            q1 = series.quantile(0.25)
+            q3 = series.quantile(0.75)
+            iqr = q3 - q1
+            if iqr == 0:
+                continue
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            outlier_mask = (series < lower) | (series > upper)
+            if int(outlier_mask.sum()):
+                working[column] = series.clip(lower=lower, upper=upper)
+                summary_parts.append(f"capped {int(outlier_mask.sum())} outliers in {column}")
+
+        summary = "Auto-cleaning applied: " + "; ".join(summary_parts) if summary_parts else "Auto-cleaning applied: no changes required."
+        return working, summary
 
     def _dataset_summary(self, dataframe: pd.DataFrame) -> DatasetSummary:
         df = dataframe.copy()

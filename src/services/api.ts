@@ -1,4 +1,4 @@
-import type { AnalysisStatus, UploadResponse } from "../types";
+import type { UploadResponse, PhaseEvent } from "../types";
 
 const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? "http://localhost:8000";
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? `${API_ORIGIN}/api`;
@@ -159,39 +159,49 @@ export async function uploadDataset(file: File): Promise<UploadResponse> {
   return parseResponse<UploadResponse>(response);
 }
 
-export async function analyzeDataset(analysisId: string): Promise<void> {
-  console.info("[InsightAI] analyze request", {
-    endpoint: `${API_BASE}/analyze`,
-    analysisId,
-    apiBase: API_BASE,
-  });
-  const response = await requestWithRetry(`${API_BASE}/analyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ analysis_id: analysisId }),
-  });
-
-  console.info("[InsightAI] analyze response", {
-    status: response.status,
-    ok: response.ok,
-  });
-
-  await parseResponse(response);
-}
-
-export async function fetchAnalysis(
+export function streamAnalysis(
   analysisId: string,
-): Promise<AnalysisStatus> {
-  console.info("[InsightAI] fetch analysis request", {
-    endpoint: `${API_BASE}/analysis/${analysisId}`,
+  onEvent: (event: PhaseEvent) => void,
+  onError: (error: Error) => void
+): EventSource {
+  console.info("[InsightAI] stream analysis request", {
+    endpoint: `${API_BASE}/analyze/${analysisId}/stream`,
     analysisId,
   });
-  const response = await requestWithRetry(`${API_BASE}/analysis/${analysisId}`);
-  console.info("[InsightAI] fetch analysis response", {
-    status: response.status,
-    ok: response.ok,
+  const url = `${API_BASE}/analyze/${analysisId}/stream`;
+  const eventSource = new EventSource(url);
+
+  eventSource.addEventListener("phase", (event: MessageEvent) => {
+    try {
+      const data = JSON.parse(event.data) as PhaseEvent;
+      onEvent(data);
+    } catch (err) {
+      console.error("Failed to parse SSE phase data:", err);
+    }
   });
-  return parseResponse<AnalysisStatus>(response);
+
+  eventSource.addEventListener("complete", (event: MessageEvent) => {
+    try {
+      const data = JSON.parse(event.data) as { result: any };
+      onEvent({
+        phase: 11,
+        status: "done",
+        title: "Executive Report",
+        output: data.result,
+      });
+      eventSource.close();
+    } catch (err) {
+      console.error("Failed to parse SSE complete data:", err);
+    }
+  });
+
+  eventSource.onerror = (err) => {
+    console.error("EventSource connection error:", err);
+    onError(new Error("Analysis stream connection lost."));
+    eventSource.close();
+  };
+
+  return eventSource;
 }
 
 export function getReportUrl(analysisId: string): string {

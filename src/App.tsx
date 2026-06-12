@@ -20,15 +20,14 @@ import {
 } from "lucide-react";
 
 import {
-  analyzeDataset,
   checkAnalysisConnection,
   getConnectionDiagnostics,
-  fetchAnalysis,
   getReportUrl,
   uploadDataset,
 } from "./services/api";
 import type { AnalysisResult, AnalysisStatus, UploadResponse } from "./types";
 import HomePage from "./pages/HomePage";
+import AdminPanel from "./components/AdminPanel";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 const AUTO_OFFLINE_MESSAGE =
@@ -284,11 +283,6 @@ function ConsolePage() {
         preview_rows: upload.preview_rows,
         schema: upload.schema,
       });
-
-      await analyzeDataset(upload.analysis_id);
-      const initial = await fetchAnalysis(upload.analysis_id);
-      setAnalysis(initial);
-      startPolling(upload.analysis_id);
     } catch (err) {
       setConnectionState((current) =>
         current === "offline" ? "offline" : "degraded",
@@ -305,33 +299,20 @@ function ConsolePage() {
     }
   };
 
-  const startPolling = (analysisId: string) => {
-    if (pollRef.current) {
-      window.clearInterval(pollRef.current);
-    }
-
-    pollRef.current = window.setInterval(async () => {
-      try {
-        const next = await fetchAnalysis(analysisId);
-        setAnalysis(next);
-        if (next.status === "completed" || next.status === "failed") {
-          if (pollRef.current) {
-            window.clearInterval(pollRef.current);
-          }
-        }
-      } catch (err) {
-        setConnectionState(connectionState === "demo" ? "demo" : "degraded");
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Analysis service temporarily unavailable.",
-        );
-        if (pollRef.current) {
-          window.clearInterval(pollRef.current);
-        }
-      }
-    }, 1500);
-  };
+  if (uploadMeta && uploadMeta.analysis_id && uploadMeta.analysis_id !== "local-preview") {
+    return (
+      <AdminPanel
+        analysisId={uploadMeta.analysis_id}
+        uploadMeta={uploadMeta}
+        onReset={() => {
+          setSelectedFile(null);
+          setUploadMeta(null);
+          setDatasetMeta(null);
+          setAnalysis(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="relative min-h-screen overflow-x-clip bg-[var(--bg-primary)] text-[var(--text-primary)]">

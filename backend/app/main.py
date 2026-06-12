@@ -7,14 +7,31 @@ from datetime import datetime
 from pathlib import Path
 from time import perf_counter
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from .config import Settings, get_settings
-from .models import AnalysisLookupResponse, AnalysisStatus, AnalyzeRequest
+from .models import (
+    AnalysisLookupResponse,
+    AnalysisStatus,
+    AnalyzeRequest,
+    AnalysisResult,
+    DatasetSummary,
+    DataQualityReport,
+    CleaningRecommendation,
+    EdaReport,
+    BusinessInsightsResponse,
+    MlProblemDetection,
+    RecommendationResponse,
+    ReasoningStep,
+    PipelineStage,
+    EvaluationStrategy,
+    ExecutiveReport,
+)
 from .services.analysis_engine import AnalysisEngine
 from .services.azure_openai import AzureOpenAIService
+from .services.sse import phase_event, complete_event, error_event
 from .storage import analysis_store
 
 logger = logging.getLogger(__name__)
@@ -223,34 +240,133 @@ def create_app() -> FastAPI:
         app.state.dataframes[analysis_id] = dataframe
         return response
 
-    @app.post(f"{settings.api_prefix}/analyze")
-    async def analyze_dataset(
-        payload: AnalyzeRequest,
-        background_tasks: BackgroundTasks,
+    @app.get(f"{settings.api_prefix}/analyze/{{analysis_id}}/stream")
+    async def stream_analysis(
+        analysis_id: str,
         app_settings: Settings = Depends(get_settings),
     ):
-        logger.info("Analyze requested analysis_id=%s", payload.analysis_id)
-        status = analysis_store.get(payload.analysis_id)
+        logger.info("SSE Stream requested for analysis_id=%s", analysis_id)
+        status = analysis_store.get(analysis_id)
         if not status:
             raise HTTPException(status_code=404, detail="Analysis ID not found.")
 
-        if status.result is not None and status.status == "completed":
-            return {"analysis_id": payload.analysis_id, "status": "completed", "cached": True}
+        # If already completed, stream the final cached completion event immediately
+        if status.status == "completed" and status.result:
+            logger.info("Serving cached result for analysis_id=%s", analysis_id)
+            async def cached_stream():
+                yield complete_event(status.result.model_dump())
+            return StreamingResponse(
+                cached_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                }
+            )
 
-        dataframe = app.state.dataframes.get(payload.analysis_id)
+        dataframe = app.state.dataframes.get(analysis_id)
         if dataframe is None:
             raise HTTPException(status_code=404, detail="Uploaded dataset not found in memory.")
 
-        analysis_store.update(
-            payload.analysis_id,
-            status="processing",
-            current_phase=1,
-            progress_label="Dataset Understanding",
-            error=None,
+        engine = AnalysisEngine(app_settings)
+
+        async def event_generator():
+            try:
+                # Mark status as processing in database store
+                analysis_store.update(
+                    analysis_id,
+                    status="processing",
+                    current_phase=1,
+                    progress_label="Dataset Understanding",
+                    error=None,
+                )
+
+                phase_outputs = {}
+                async for event in engine.run_streaming_analysis(
+                    analysis_id=analysis_id,
+                    dataframe=dataframe,
+                    filename=status.filename,
+                ):
+                    phase = event["phase"]
+                    status_str = event["status"]
+                    title = event["title"]
+                    output = event.get("output")
+                    
+                    # Yield SSE formatted message to client
+                    yield phase_event(
+                        phase=phase,
+                        status=status_str,
+                        title=title,
+                        output=output,
+                    )
+
+                    # When a phase completes, save output and update DB status
+                    if status_str == "done":
+                        if output is not None:
+                            phase_outputs[phase] = output
+                        analysis_store.update(
+                            analysis_id,
+                            current_phase=phase,
+                            progress_label=title,
+                            status="processing" if phase < 11 else "completed",
+                        )
+
+                # Collect outputs to reconstruct final AnalysisResult
+                phase3_out = phase_outputs[3]
+                cleaning_recs = [CleaningRecommendation(**r) for r in phase3_out["recommendations"]]
+                
+                dq_dict = phase_outputs[2]
+                dq_dict["cleaning_summary"] = phase3_out["cleaning_summary"]
+
+                result = AnalysisResult(
+                    analysis_id=analysis_id,
+                    filename=status.filename,
+                    created_at=datetime.utcnow(),
+                    dataset_summary=DatasetSummary(**phase_outputs[1]),
+                    data_quality=DataQualityReport(**dq_dict),
+                    cleaning_recommendations=cleaning_recs,
+                    eda=EdaReport(**phase_outputs[4]),
+                    business_insights=BusinessInsightsResponse(**phase_outputs[5]),
+                    ml_problem_detection=MlProblemDetection(**phase_outputs[6]),
+                    model_recommendations=RecommendationResponse(**phase_outputs[7]),
+                    reasoning_engine=[ReasoningStep(**step) for step in phase_outputs[8]],
+                    pipeline_blueprint=[PipelineStage(**stage) for stage in phase_outputs[9]],
+                    evaluation_strategy=EvaluationStrategy(**phase_outputs[10]),
+                    executive_report=ExecutiveReport(**phase_outputs[11]),
+                )
+
+                # Cache and save the final complete result
+                if status.cache_key:
+                    app.state.analysis_cache[status.cache_key] = result
+                
+                analysis_store.update(
+                    analysis_id,
+                    status="completed",
+                    current_phase=11,
+                    progress_label="Executive Report",
+                    result=result,
+                )
+
+                yield complete_event(result.model_dump())
+
+            except Exception as exc:
+                logger.exception("Analysis stream error for analysis_id=%s", analysis_id)
+                analysis_store.update(
+                    analysis_id,
+                    status="failed",
+                    progress_label="Analysis failed",
+                    error=str(exc),
+                )
+                yield error_event(phase=status.current_phase or 1, title="Error", message=str(exc))
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
         )
-        logger.info("Analyze enqueued analysis_id=%s current_phase=%s", payload.analysis_id, 1)
-        background_tasks.add_task(run_analysis_job, app, payload.analysis_id, app_settings)
-        return {"analysis_id": payload.analysis_id, "status": "processing"}
 
     @app.get(f"{settings.api_prefix}/analysis/{{analysis_id}}", response_model=AnalysisLookupResponse)
     async def get_analysis(analysis_id: str):
@@ -292,67 +408,7 @@ def create_app() -> FastAPI:
     return app
 
 
-async def run_analysis_job(app: FastAPI, analysis_id: str, settings: Settings) -> None:
-    status = analysis_store.get(analysis_id)
-    if not status:
-        return
-
-    dataframe = app.state.dataframes.get(analysis_id)
-    if dataframe is None:
-        analysis_store.update(
-            analysis_id,
-            status="failed",
-            error="Dataset frame missing from server memory.",
-            progress_label="Analysis failed",
-        )
-        return
-
-    engine = AnalysisEngine(settings)
-
-    async def progress_callback(phase: int, label: str) -> None:
-        logger.info("Analysis progress analysis_id=%s phase=%s label=%s", analysis_id, phase, label)
-        analysis_store.update(
-            analysis_id,
-            current_phase=phase,
-            progress_label=label,
-            status="processing" if phase < 11 else "completed",
-        )
-
-    try:
-        logger.info("Analysis job start analysis_id=%s azure_configured=%s endpoint_loaded=%s deployment_loaded=%s api_version=%s",
-                    analysis_id,
-                    engine.azure.configured,
-                    engine.azure.diagnostics().endpoint_loaded,
-                    engine.azure.diagnostics().deployment_loaded,
-                    engine.azure.diagnostics().api_version_value)
-        result = await engine.run_full_analysis(
-            analysis_id=analysis_id,
-            dataframe=dataframe,
-            filename=status.filename,
-            progress_callback=progress_callback,
-        )
-        logger.info("Analysis job complete analysis_id=%s source_business=%s source_model=%s source_report=%s",
-                    analysis_id,
-                    result.business_insights.source,
-                    result.model_recommendations.source,
-                    result.executive_report.source)
-        if status.cache_key:
-            app.state.analysis_cache[status.cache_key] = result
-        analysis_store.update(
-            analysis_id,
-            status="completed",
-            current_phase=11,
-            progress_label="Executive Report",
-            result=result,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Analysis job failed analysis_id=%s", analysis_id)
-        analysis_store.update(
-            analysis_id,
-            status="failed",
-            progress_label="Analysis failed",
-            error=str(exc),
-        )
+# The background task run_analysis_job has been refactored into the StreamingResponse inline generator.
 
 
 app = create_app()

@@ -143,3 +143,17 @@ export type AnalysisResult = {
     source: "azure-openai" | "fallback-engine";
   };
 };
+
+export type PhaseEvent = {
+  phase: number;
+  status: "pending" | "running" | "done" | "error";
+  title: string;
+  output?: any;
+  error?: string;
+};
+
+export type PhaseState = {
+  status: "pending" | "running" | "done" | "error";
+  output: any | null;
+  error?: string | null;
+};
