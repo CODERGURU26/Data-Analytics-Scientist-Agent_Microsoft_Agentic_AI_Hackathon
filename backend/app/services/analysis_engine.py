@@ -746,37 +746,74 @@ class AnalysisEngine:
             return BusinessInsightsResponse(**result, source="azure-openai")
         except Exception as exc:
             logger.exception("Azure business insights failed; using fallback", exc_info=exc)
+            
+            health = data_quality.dataset_health_score
+            problem_type = ml_problem.problem_type
+            target_var = ml_problem.possible_target_variables[0] if ml_problem.possible_target_variables else "the primary columns"
+            num_cols = len(dataset_summary.numeric_columns)
+            cat_cols = len(dataset_summary.categorical_columns)
+            
+            dynamic_findings = [
+                {
+                    "finding": f"The dataset features {dataset_summary.row_count} rows across {dataset_summary.column_count} columns with {health}% health score.",
+                    "insight": f"Analysis identified {num_cols} numerical features and {cat_cols} categorical features, framing a {problem_type} challenge.",
+                    "recommendation": "Prioritize preprocessing on variables with low health score or high missing percentage.",
+                    "expected_impact": "Mitigates algorithmic bias and maximizes target prediction confidence."
+                }
+            ]
+            
+            if ml_problem.possible_target_variables:
+                dynamic_findings.append({
+                    "finding": f"Model target candidates include {', '.join(ml_problem.possible_target_variables[:3])}.",
+                    "insight": f"Predicting '{target_var}' requires aligning explanatory variables and encoding categorical columns.",
+                    "recommendation": f"Designate '{target_var}' as the primary target variable for the initial machine learning iteration.",
+                    "expected_impact": "Ensures model training directly impacts business key metrics."
+                })
+            else:
+                dynamic_findings.append({
+                    "finding": "Weak target representation restricts supervised learning pipelines.",
+                    "insight": "High dispersion across variables recommends unsupervised customer segmentation.",
+                    "recommendation": "Begin modeling with unsupervised clustering to discover target groupings.",
+                    "expected_impact": "Discovers latent commercial cohorts for marketing customization."
+                })
+
+            quality_risks = []
+            if data_quality.missing_values:
+                quality_risks.append(f"Missing values detected in {len(data_quality.missing_values)} columns, leading to possible training biases.")
+            if data_quality.outliers:
+                quality_risks.append(f"Anomalous values or outliers in {len(data_quality.outliers)} numerical columns could distort predictions.")
+            if not quality_risks:
+                quality_risks.append("No critical missing values or outliers found, but data drift should be monitored.")
+            quality_risks.append(f"Framing as {problem_type} requires valid stakeholder alignment on performance threshold.")
+            
+            dynamic_opps = [
+                f"Leverage the {num_cols} numerical indicators to design predictive KPIs.",
+                f"Examine high-cardinality categorical attributes for customer behavioral segmentation.",
+            ]
+            if ml_problem.possible_target_variables:
+                dynamic_opps.append(f"Automate decision-making loops around target '{target_var}' forecasting.")
+                
+            dynamic_recs = [
+                f"Deploy a modular training pipeline using {problem_type.capitalize()} templates.",
+                f"Verify the {health}% health score via regular data ingestion validation schemas.",
+            ]
+            if data_quality.duplicate_records > 0:
+                dynamic_recs.append(f"Remove the {data_quality.duplicate_records} duplicate records before training models.")
+            else:
+                dynamic_recs.append("Monitor ingestion streams to keep duplicate records at zero.")
+
+            dynamic_narrative = (
+                f"Based on the analysis of {dataset_summary.row_count} records, the data presents a robust {health}% health index. "
+                f"We recommend a {problem_type} model targeting '{target_var}' using the available {num_cols} numeric features. "
+                "Immediate opportunity exists to clean remaining minor flaws and pilot a baseline model to drive measurable business KPIs."
+            )
+
             return BusinessInsightsResponse(
-                key_findings=[
-                    {
-                        "finding": "Data quality constraints influence usable analytical signal.",
-                        "insight": "Operational discipline around missing and duplicate records will directly improve downstream recommendation quality.",
-                        "recommendation": "Prioritize data hygiene before scaling model complexity.",
-                        "expected_impact": "Higher trust in insight generation and lower rework for model development.",
-                    },
-                    {
-                        "finding": "Feature relationships indicate measurable business drivers.",
-                        "insight": "Top numeric and categorical signals likely explain variance in target behavior or segment movement.",
-                        "recommendation": "Validate highest-importance fields with domain stakeholders and action owners.",
-                        "expected_impact": "Faster movement from analysis into intervention design.",
-                    },
-                ],
-                risks=[
-                    "Data quality issues may bias model recommendations if unresolved.",
-                    "Weak target definition can reduce confidence in supervised learning path.",
-                ],
-                opportunities=[
-                    "Use top-ranked features to guide commercial experimentation.",
-                    "Convert strongest segment patterns into customer or operational playbooks.",
-                ],
-                recommendations=[
-                    "Resolve top missing-value and duplication issues before production modeling.",
-                    "Pilot highest-confidence ML use case with defined business owner and KPI.",
-                ],
-                executive_narrative=(
-                    "Dataset contains enough structure for strategic analysis, but value realization depends on disciplined cleaning and clear target framing. "
-                    "Most immediate opportunity comes from operationalizing strongest explanatory variables into focused business decisions."
-                ),
+                key_findings=dynamic_findings,
+                risks=quality_risks,
+                opportunities=dynamic_opps,
+                recommendations=dynamic_recs,
+                executive_narrative=dynamic_narrative,
                 source="fallback-engine",
             )
 

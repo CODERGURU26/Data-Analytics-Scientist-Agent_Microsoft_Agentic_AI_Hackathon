@@ -1,18 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate, Navigate } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
   ArrowRight,
   BrainCircuit,
-  BriefcaseBusiness,
   Database,
-  Download,
   FileBarChart2,
   FileText,
   LoaderCircle,
-  Radar,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -25,7 +22,7 @@ import {
   getReportUrl,
   uploadDataset,
 } from "./services/api";
-import type { AnalysisResult, AnalysisStatus, UploadResponse } from "./types";
+import type { AnalysisStatus, UploadResponse } from "./types";
 import HomePage from "./pages/HomePage";
 import AdminPanel from "./components/AdminPanel";
 
@@ -33,27 +30,7 @@ const ease = [0.22, 1, 0.36, 1] as const;
 const AUTO_OFFLINE_MESSAGE =
   "Offline Preview Mode. Upload and dataset validation remain available. AI analysis requires a connected inference service.";
 
-const navItems = [
-  "Platform",
-  "Capabilities",
-  "Reasoning Engine",
-  "ML Advisor",
-  "Reports",
-];
-
-const phaseLabels = [
-  "Dataset Understanding",
-  "Data Quality Assessment",
-  "Cleaning Recommendations",
-  "EDA Engine",
-  "Business Insight Generation",
-  "ML Problem Detection",
-  "Model Recommendation Engine",
-  "Reasoning Engine",
-  "Pipeline Blueprint",
-  "Evaluation Strategy",
-  "Executive Report",
-];
+const navItems: string[] = [];
 
 const PAGE_CONTAINER = "mx-auto max-w-[1400px] px-6";
 const SECTION_STACK = "py-28";
@@ -65,6 +42,7 @@ const CARD_SIZES = {
 
 function ConsolePage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const isConsoleRoute = location.pathname.startsWith("/console");
   const { scrollYProgress } = useScroll();
   const navBlur = useTransform(scrollYProgress, [0, 0.15], [8, 18]);
@@ -141,9 +119,10 @@ function ConsolePage() {
 
     void ping();
 
+    const currentPoll = pollRef.current;
     return () => {
-      if (pollRef.current) {
-        window.clearInterval(pollRef.current);
+      if (currentPoll) {
+        window.clearInterval(currentPoll);
       }
     };
   }, []);
@@ -167,7 +146,6 @@ function ConsolePage() {
         : ["Upload CSV", "Run 11-phase reasoning", "Receive executive report"],
     [analysis, progressPercent],
   );
-  const showAdvancedSections = Boolean(uploadMeta || analysis);
   const statusMessage = useMemo(() => {
     if (busy || (analysis && analysis.status === "processing"))
       return "Loading";
@@ -283,6 +261,7 @@ function ConsolePage() {
         preview_rows: upload.preview_rows,
         schema: upload.schema,
       });
+      navigate("/workspace");
     } catch (err) {
       setConnectionState((current) =>
         current === "offline" ? "offline" : "degraded",
@@ -299,19 +278,26 @@ function ConsolePage() {
     }
   };
 
-  if (uploadMeta && uploadMeta.analysis_id && uploadMeta.analysis_id !== "local-preview") {
-    return (
-      <AdminPanel
-        analysisId={uploadMeta.analysis_id}
-        uploadMeta={uploadMeta}
-        onReset={() => {
-          setSelectedFile(null);
-          setUploadMeta(null);
-          setDatasetMeta(null);
-          setAnalysis(null);
-        }}
-      />
-    );
+  const isWorkspaceRoute = location.pathname === "/workspace";
+
+  if (isWorkspaceRoute) {
+    if (uploadMeta && uploadMeta.analysis_id && uploadMeta.analysis_id !== "local-preview") {
+      return (
+        <AdminPanel
+          analysisId={uploadMeta.analysis_id}
+          uploadMeta={uploadMeta}
+          onReset={() => {
+            setSelectedFile(null);
+            setUploadMeta(null);
+            setDatasetMeta(null);
+            setAnalysis(null);
+            navigate("/");
+          }}
+        />
+      );
+    } else {
+      return <Navigate to="/" replace />;
+    }
   }
 
   return (
@@ -613,282 +599,6 @@ function ConsolePage() {
           </div>
         </section>
 
-        {showAdvancedSections && (
-          <>
-            <section
-              id="pipeline"
-              className={`${PAGE_CONTAINER} ${SECTION_STACK}`}
-            >
-              <SectionHeader
-                eyebrow="Pipeline Overview"
-                title="How the autonomous reasoning workflow operates."
-                body="Every stage rehydrates from live analytical output and stays aligned to one operating rhythm."
-              />
-
-              <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-                {phaseLabels.map((label, index) => (
-                  <motion.article
-                    key={label}
-                    initial={{ opacity: 0, y: 28 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, amount: 0.2 }}
-                    transition={{ duration: 0.7, delay: index * 0.04, ease }}
-                    className={`rounded-[28px] border p-6 ${CARD_SIZES.sm} ${
-                      analysis && analysis.current_phase >= index + 1
-                        ? "border-[rgba(198,168,106,0.25)] bg-[linear-gradient(180deg,rgba(30,38,49,0.96),rgba(17,22,29,0.92))]"
-                        : "border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.95),rgba(17,22,29,0.92))]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs uppercase tracking-[0.32em] text-[var(--accent)]">
-                        Phase {String(index + 1).padStart(2, "0")}
-                      </p>
-                      {analysis &&
-                      analysis.current_phase === index + 1 &&
-                      analysis.status === "processing" ? (
-                        <LoaderCircle className="h-5 w-5 animate-spin text-[var(--accent)]" />
-                      ) : (
-                        <div className="h-2 w-2 rounded-full bg-[rgba(255,255,255,0.2)]" />
-                      )}
-                    </div>
-                    <h3 className="mt-4 font-heading text-2xl tracking-[-0.03em]">
-                      {label}
-                    </h3>
-                    <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
-                      {getPhaseDescription(label, result)}
-                    </p>
-                  </motion.article>
-                ))}
-              </div>
-            </section>
-
-            <section
-              id="workspace"
-              className={`${PAGE_CONTAINER} ${SECTION_STACK}`}
-            >
-              <SectionHeader
-                eyebrow="Analysis Workspace"
-                title="What is AI thinking right now?"
-                body="Reasoning Feed, Business Insights, and ML Advisor operate as one workspace for interpreting live analysis."
-              />
-
-              <div className="mt-6 grid gap-6 lg:grid-cols-12">
-                <div className="lg:col-span-7 h-full">
-                  <div
-                    className={`h-full rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.lg}`}
-                  >
-                    <div className="flex items-center justify-between gap-4 border-b border-[rgba(255,255,255,0.06)] pb-5">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-                          Reasoning Feed
-                        </p>
-                        <h3 className="mt-2 font-heading text-2xl tracking-[-0.03em]">
-                          Observation to recommendation.
-                        </h3>
-                      </div>
-                      <div className="rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 py-2 text-xs uppercase tracking-[0.22em] text-[var(--text-secondary)]">
-                        {result ? "Active" : "Pending"}
-                      </div>
-                    </div>
-                    <div className="mt-6">
-                      {(result?.reasoning_engine ?? []).length > 0 ? (
-                        result?.reasoning_engine.map((step, index) => (
-                          <motion.div
-                            key={`${step.observation}-${index}`}
-                            initial={{ opacity: 0, x: -16 }}
-                            whileInView={{ opacity: 1, x: 0 }}
-                            viewport={{ once: true, amount: 0.2 }}
-                            transition={{
-                              duration: 0.7,
-                              delay: index * 0.08,
-                              ease,
-                            }}
-                            className="relative mb-6 pl-12 last:mb-0"
-                          >
-                            {index < result.reasoning_engine.length - 1 && (
-                              <div className="absolute left-[17px] top-9 h-[calc(100%-4px)] w-px bg-[linear-gradient(180deg,rgba(198,168,106,0.55),rgba(198,168,106,0.02))]" />
-                            )}
-                            <div className="absolute left-0 top-1 flex h-9 w-9 items-center justify-center rounded-full border border-[rgba(198,168,106,0.35)] bg-[rgba(198,168,106,0.08)] text-sm text-[var(--accent)]">
-                              {index + 1}
-                            </div>
-                            <div className="rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-5">
-                              <ReasoningRow
-                                label="Observation"
-                                value={step.observation}
-                              />
-                              <ReasoningRow
-                                label="Inference"
-                                value={step.inference}
-                              />
-                              <ReasoningRow
-                                label="Business Meaning"
-                                value={step.business_meaning}
-                              />
-                              <ReasoningRow
-                                label="Recommendation"
-                                value={step.recommendation}
-                              />
-                              <ReasoningRow
-                                label="Expected Outcome"
-                                value={step.expected_outcome}
-                              />
-                            </div>
-                          </motion.div>
-                        ))
-                      ) : (
-                        <CompactSkeleton
-                          label="Pending"
-                          title="Reasoning Feed"
-                          detail="Waiting for analysis"
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="lg:col-span-5 space-y-6 h-full">
-                  <InsightPanel
-                    title="Business Insights"
-                    icon={BriefcaseBusiness}
-                    source={result?.business_insights.source}
-                    items={
-                      result?.business_insights.key_findings.map((item) => ({
-                        title: item.finding,
-                        body: `${item.insight} ${item.recommendation} ${item.expected_impact}`,
-                      })) ?? []
-                    }
-                  />
-                  <InsightPanel
-                    title="ML Advisor"
-                    icon={Radar}
-                    source={result?.model_recommendations.source}
-                    items={
-                      result?.model_recommendations.ranked_models.map(
-                        (item) => ({
-                          title: `${item.model_name} · ${item.confidence_score}%`,
-                          body: item.why_recommended,
-                        }),
-                      ) ?? []
-                    }
-                  />
-                </div>
-              </div>
-            </section>
-
-            <section
-              id="reports"
-              className={`${PAGE_CONTAINER} ${SECTION_STACK}`}
-            >
-              <SectionHeader
-                eyebrow="Executive Report"
-                title="What should I do?"
-                body="Executive report is primary artifact. Metrics exist only to support decision-making."
-              />
-
-              <div className="mt-6 grid gap-6 lg:grid-cols-12">
-                <div className="lg:col-span-8 h-full">
-                  <ExecutiveReportCard result={result} />
-                </div>
-
-                <div className="lg:col-span-4 h-full">
-                  <div className={`grid gap-6 ${CARD_SIZES.lg}`}>
-                    <div
-                      className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.md}`}
-                    >
-                      <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-                        Report Summary
-                      </p>
-                      <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
-                        Dataset health, business impact, and ML strategy are
-                        consolidated into one executive briefing.
-                      </p>
-                    </div>
-                    <div
-                      className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.md}`}
-                    >
-                      <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-                        Export Status
-                      </p>
-                      <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
-                        PDF report becomes available when backend report
-                        generator completes.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section
-              id="supporting-analytics"
-              className={`${PAGE_CONTAINER} ${SECTION_STACK}`}
-            >
-              <SectionHeader
-                eyebrow="Supporting Analytics"
-                title="Evidence & Confidence"
-                body="EDA and model recommendations provide supporting evidence for executive decisions."
-              />
-
-              <div className="mt-6">
-                <KpiGrid result={result} />
-              </div>
-
-              <div className="mt-6 grid gap-6 lg:grid-cols-2">
-                <ChartGallery result={result} />
-                <div
-                  className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 ${CARD_SIZES.md}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-2xl border border-[rgba(198,168,106,0.28)] bg-[rgba(198,168,106,0.08)] p-3">
-                      <Radar className="h-5 w-5 text-[var(--accent)]" />
-                    </div>
-                    <div>
-                      <p className="font-heading text-2xl tracking-[-0.03em]">
-                        ML Recommendations
-                      </p>
-                      <p className="text-sm text-[var(--text-secondary)]">
-                        Ranked models and confidence scores support report
-                        decisions.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-6">
-                    {result?.model_recommendations.ranked_models.length ? (
-                      <div className="grid gap-4 md:grid-cols-2">
-                        {result.model_recommendations.ranked_models
-                          .slice(0, 4)
-                          .map((item) => (
-                            <div
-                              key={item.model_name}
-                              className="rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-4"
-                            >
-                              <div className="flex items-center justify-between gap-4">
-                                <p className="font-heading text-xl tracking-[-0.03em]">
-                                  {item.model_name}
-                                </p>
-                                <p className="text-xs uppercase tracking-[0.24em] text-[var(--accent)]">
-                                  {item.confidence_score}%
-                                </p>
-                              </div>
-                              <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
-                                {item.why_recommended}
-                              </p>
-                            </div>
-                          ))}
-                      </div>
-                    ) : (
-                      <CompactSkeleton
-                        label="Pending"
-                        title="ML Recommendations"
-                        detail="Waiting for analysis"
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-            </section>
-          </>
-        )}
       </main>
     </div>
   );
@@ -1183,35 +893,7 @@ function UploadConsole({
   );
 }
 
-function SectionHeader({
-  eyebrow,
-  title,
-  body,
-  align = "center",
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  align?: "left" | "center";
-}) {
-  const layout =
-    align === "left"
-      ? "max-w-[520px] text-left"
-      : "mx-auto max-w-3xl text-center";
-  return (
-    <div className={layout}>
-      <p className="text-xs uppercase tracking-[0.34em] text-[var(--accent)]">
-        {eyebrow}
-      </p>
-      <h2 className="mt-4 font-heading text-[clamp(2.6rem,5vw,4.5rem)] leading-[1] tracking-[-0.045em]">
-        {title}
-      </h2>
-      <p className="mt-5 text-base leading-8 text-[var(--text-secondary)] md:text-lg">
-        {body}
-      </p>
-    </div>
-  );
-}
+
 
 function BackgroundSystem() {
   return (
@@ -1331,388 +1013,7 @@ function InfoCard({
   );
 }
 
-function ReasoningRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="mb-4 last:mb-0">
-      <p className="text-xs uppercase tracking-[0.24em] text-[var(--accent)]">
-        {label}
-      </p>
-      <p className="mt-2 text-sm leading-7 text-[var(--text-primary)]">
-        {value}
-      </p>
-    </div>
-  );
-}
 
-function InsightPanel({
-  title,
-  items,
-  source,
-  icon: Icon,
-}: {
-  title: string;
-  items: { title: string; body: string }[];
-  source?: string;
-  icon: typeof BrainCircuit;
-}) {
-  return (
-    <div className="rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(30,38,49,0.95),rgba(17,22,29,0.95))] p-6 md:p-8">
-      <div className="flex items-center justify-between gap-4 border-b border-[rgba(255,255,255,0.06)] pb-5">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl border border-[rgba(198,168,106,0.28)] bg-[rgba(198,168,106,0.08)] p-3">
-            <Icon className="h-5 w-5 text-[var(--accent)]" />
-          </div>
-          <div>
-            <p className="font-heading text-2xl tracking-[-0.03em]">{title}</p>
-            <p className="text-xs uppercase tracking-[0.24em] text-[var(--text-secondary)]">
-              {source ?? "pending"}
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className="mt-5 space-y-4">
-        {items.length > 0 ? (
-          items.map((item) => (
-            <div
-              key={item.title}
-              className="rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-4"
-            >
-              <p className="font-heading text-xl tracking-[-0.03em]">
-                {item.title}
-              </p>
-              <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
-                {item.body}
-              </p>
-            </div>
-          ))
-        ) : (
-          <CompactSkeleton
-            label="Pending"
-            title={title}
-            detail="Waiting for analysis"
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function KpiGrid({ result }: { result: AnalysisResult | null }) {
-  const cards = result
-    ? [
-        {
-          label: "Dataset Health Score",
-          value: `${result.data_quality.dataset_health_score}/100`,
-          icon: ShieldCheck,
-        },
-        {
-          label: "Problem Type",
-          value: result.ml_problem_detection.problem_type,
-          icon: BrainCircuit,
-        },
-        {
-          label: "Leading Model",
-          value:
-            result.model_recommendations.ranked_models[0]?.model_name ?? "—",
-          icon: Radar,
-        },
-        {
-          label: "Pipeline Stages",
-          value: String(result.pipeline_blueprint.length),
-          icon: Waypoints,
-        },
-      ]
-    : [
-        { label: "Dataset Health", value: "—", icon: ShieldCheck },
-        { label: "Analysis Status", value: "Pending", icon: BrainCircuit },
-        { label: "Pipeline Progress", value: "0%", icon: Waypoints },
-        { label: "Confidence Score", value: "—", icon: Radar },
-      ];
-
-  return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      {cards.map((card) => (
-        <InfoCard
-          key={card.label}
-          title={card.label}
-          value={card.value}
-          icon={card.icon}
-        />
-      ))}
-    </div>
-  );
-}
-
-function ExecutiveReportCard({ result }: { result: AnalysisResult | null }) {
-  if (!result) {
-    return (
-      <div className="relative overflow-hidden rounded-[36px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(18,24,34,0.98),rgba(17,22,29,0.96))] p-6 shadow-[0_32px_120px_rgba(0,0,0,0.32)] md:p-8">
-        <div className="absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(198,168,106,0.16),transparent)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(198,168,106,0.08),transparent_34%)]" />
-        <div className="relative z-10">
-          <div className="flex items-start justify-between gap-6 border-b border-[rgba(255,255,255,0.08)] pb-5">
-            <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-                Executive Briefing
-              </p>
-              <h3 className="mt-2 max-w-[18ch] font-heading text-3xl tracking-[-0.04em] text-[var(--text-primary)]">
-                InsightAI Strategic Report
-              </h3>
-            </div>
-            <div className="flex flex-col items-end gap-3">
-              <div className="rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 py-2 text-xs uppercase tracking-[0.22em] text-[var(--text-secondary)]">
-                Pending
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(198,168,106,0.28)] bg-[rgba(198,168,106,0.08)] px-4 py-2 text-xs uppercase tracking-[0.22em] text-[var(--accent)]">
-                <Download className="h-4 w-4" />
-                PDF Export
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8 grid gap-5 md:grid-cols-2">
-            <ReportMetric label="Dataset Health Score" value="—" />
-            <ReportMetric label="Key Findings" value="—" />
-            <ReportMetric label="Business Opportunities" value="—" />
-            <ReportMetric label="Risk Factors" value="—" />
-            <ReportMetric label="Recommended ML Strategy" value="—" />
-            <ReportMetric label="Export Status" value="Pending" />
-          </div>
-
-          <div className="mt-8 rounded-[24px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
-            <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-              Executive Summary
-            </p>
-            <p className="mt-4 text-base leading-8 text-[var(--text-secondary)]">
-              Executive report will populate after analysis completes.
-            </p>
-          </div>
-          <div className="mt-6 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.24em] text-[var(--text-secondary)]">
-            <span className="rounded-full border border-[rgba(255,255,255,0.08)] px-3 py-2">
-              Generated pending analysis
-            </span>
-            <span className="rounded-full border border-[rgba(255,255,255,0.08)] px-3 py-2">
-              Confidence —
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative overflow-hidden rounded-[36px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(18,24,34,0.98),rgba(17,22,29,0.96))] p-6 shadow-[0_32px_120px_rgba(0,0,0,0.32)] md:p-8">
-      <div className="absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(198,168,106,0.16),transparent)]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(198,168,106,0.08),transparent_34%)]" />
-      <div className="relative z-10">
-        <div className="flex items-start justify-between gap-6 border-b border-[rgba(255,255,255,0.08)] pb-5">
-          <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-              Executive Briefing
-            </p>
-            <h3 className="mt-2 max-w-[18ch] font-heading text-3xl tracking-[-0.04em] text-[var(--text-primary)]">
-              InsightAI Strategic Report
-            </h3>
-          </div>
-          <div className="flex flex-col items-end gap-3">
-            <div className="rounded-full border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-4 py-2 text-xs uppercase tracking-[0.22em] text-[var(--text-secondary)]">
-              Ready
-            </div>
-            <a
-              href={getReportUrl(result.analysis_id)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-full border border-[rgba(198,168,106,0.28)] bg-[rgba(198,168,106,0.08)] px-4 py-2 text-xs uppercase tracking-[0.22em] text-[var(--accent)]"
-            >
-              <Download className="h-4 w-4" />
-              PDF Export
-            </a>
-          </div>
-        </div>
-
-        <div className="mt-8 grid gap-5 md:grid-cols-2">
-          <ReportMetric
-            label="Dataset Health Score"
-            value={`${result.data_quality.dataset_health_score}/100`}
-          />
-          <ReportMetric
-            label="Key Findings"
-            value={String(result.business_insights.key_findings.length)}
-          />
-          <ReportMetric
-            label="Business Opportunities"
-            value={String(result.business_insights.key_findings.length)}
-          />
-          <ReportMetric
-            label="Risk Factors"
-            value={String(result.data_quality.invalid_values.length)}
-          />
-          <ReportMetric
-            label="Recommended ML Strategy"
-            value={
-              result.model_recommendations.ranked_models[0]?.model_name ?? "—"
-            }
-          />
-          <ReportMetric label="Export Status" value="Ready" />
-        </div>
-
-        <div className="mt-8 rounded-[24px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
-          <p className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-            Executive Summary
-          </p>
-          <p className="mt-4 text-base leading-8 text-[var(--text-secondary)]">
-            {result.executive_report.executive_summary}
-          </p>
-        </div>
-        <div className="mt-6 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.24em] text-[var(--text-secondary)]">
-          <span className="rounded-full border border-[rgba(255,255,255,0.08)] px-3 py-2">
-            Generated {formatTimestamp(result.created_at)}
-          </span>
-          <span className="rounded-full border border-[rgba(255,255,255,0.08)] px-3 py-2">
-            Confidence{" "}
-            {result.model_recommendations.ranked_models[0]?.confidence_score ??
-              0}
-            %
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ReportMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[22px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-5">
-      <p className="text-xs uppercase tracking-[0.24em] text-[var(--text-secondary)]">
-        {label}
-      </p>
-      <p className="mt-3 font-heading text-2xl tracking-[-0.04em] text-[var(--text-primary)]">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function ChartGallery({ result }: { result: AnalysisResult | null }) {
-  return (
-    <div
-      className={`rounded-[32px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(23,29,38,0.94),rgba(17,22,29,0.94))] p-6 md:p-8 ${CARD_SIZES.md}`}
-    >
-      <div className="flex items-center gap-3">
-        <div className="rounded-2xl border border-[rgba(198,168,106,0.28)] bg-[rgba(198,168,106,0.08)] p-3">
-          <FileText className="h-5 w-5 text-[var(--accent)]" />
-        </div>
-        <div>
-          <p className="font-heading text-2xl tracking-[-0.03em]">
-            EDA Visuals
-          </p>
-          <p className="text-sm text-[var(--text-secondary)]">
-            Plotly-compatible chart payloads from backend.
-          </p>
-        </div>
-      </div>
-      <div className="mt-4 rounded-[22px] border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-4 text-sm text-[var(--text-secondary)]">
-        {result?.data_quality.cleaning_summary ??
-          "Auto-cleaning runs before analysis to normalize missing values, duplicates, and outlier ranges."}
-      </div>
-      <div className="mt-6 grid gap-5">
-        {result?.eda.charts.length ? (
-          result.eda.charts.map((chart) => (
-            <MiniChart key={chart.chart_id} chart={chart} />
-          ))
-        ) : (
-          <CompactSkeleton
-            label="Pending"
-            title="EDA Visuals"
-            detail="Waiting for analysis"
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MiniChart({
-  chart,
-}: {
-  chart: {
-    title: string;
-    chart_type?: string;
-    data: Record<string, unknown>[];
-  };
-}) {
-  const firstSeries = chart.data[0];
-  const values = Array.isArray(firstSeries?.y)
-    ? (firstSeries.y as number[])
-    : [];
-  const labels = Array.isArray(firstSeries?.x)
-    ? (firstSeries.x as (string | number)[])
-    : [];
-  const max = Math.max(...values, 1);
-  const displayValues = values.slice(0, 6);
-  const displayLabels = labels.slice(0, 6);
-
-  return (
-    <div className="rounded-[24px] border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.025)] p-5">
-      <p className="font-heading text-xl tracking-[-0.03em]">{chart.title}</p>
-      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">
-        {chart.chart_type ?? "bar"} chart
-      </p>
-      <div className="mt-5 space-y-3">
-        {displayValues.length ? (
-          displayValues.map((value, index) => (
-            <div key={`${displayLabels[index] ?? index}-${value}`}>
-              <div className="mb-2 flex items-center justify-between gap-4 text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">
-                <span>
-                  {String(displayLabels[index] ?? `Series ${index + 1}`)}
-                </span>
-                <span>{Number(value).toLocaleString()}</span>
-              </div>
-              <div className="h-2 rounded-full bg-[rgba(255,255,255,0.08)]">
-                <div
-                  className="h-full rounded-full bg-[linear-gradient(90deg,#C6A86A,#F0E0B7)]"
-                  style={{
-                    width: `${Math.min((Number(value) / max) * 100, 100)}%`,
-                  }}
-                />
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="text-sm text-[var(--text-secondary)]">
-            No numeric points available for this chart yet.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CompactSkeleton({
-  label,
-  title,
-  detail,
-}: {
-  label: string;
-  title: string;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-[22px] border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-4">
-      <p className="text-xs uppercase tracking-[0.24em] text-[var(--text-secondary)]">
-        {label}
-      </p>
-      <div className="mt-4 space-y-3">
-        <div className="h-4 w-3/5 rounded-full bg-[rgba(255,255,255,0.08)]" />
-        <div className="h-3 w-full rounded-full bg-[rgba(255,255,255,0.06)]" />
-        <div className="h-3 w-4/5 rounded-full bg-[rgba(255,255,255,0.06)]" />
-      </div>
-      <p className="mt-4 text-sm text-[var(--text-secondary)]">
-        {title} {detail}
-      </p>
-    </div>
-  );
-}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -1833,49 +1134,12 @@ function inferColumnType(values: string[]): string {
   return "string";
 }
 
-function getPhaseDescription(label: string, result: AnalysisResult | null) {
-  if (!result) {
-    return "Awaiting dataset upload.";
-  }
 
-  switch (label) {
-    case "Dataset Understanding":
-      return result.dataset_summary.summary;
-    case "Data Quality Assessment":
-      return result.data_quality.explanation;
-    case "Cleaning Recommendations":
-      return (
-        result.cleaning_recommendations[0]?.recommendation ??
-        "No recommendation generated."
-      );
-    case "EDA Engine":
-      return `${result.eda.cards.map((card) => `${card.title}: ${card.value}`).join(" · ")}`;
-    case "Business Insight Generation":
-      return result.business_insights.executive_narrative;
-    case "ML Problem Detection":
-      return result.ml_problem_detection.reasoning;
-    case "Model Recommendation Engine":
-      return (
-        result.model_recommendations.ranked_models[0]?.why_recommended ??
-        "No model recommendation."
-      );
-    case "Reasoning Engine":
-      return result.reasoning_engine[0]?.observation ?? "No reasoning summary.";
-    case "Pipeline Blueprint":
-      return result.pipeline_blueprint.map((item) => item.stage).join(" → ");
-    case "Evaluation Strategy":
-      return result.evaluation_strategy.explanation;
-    case "Executive Report":
-      return result.executive_report.ml_strategy;
-    default:
-      return "Analysis stage complete.";
-  }
-}
 
 function App() {
   const location = useLocation();
 
-  return location.pathname.startsWith("/console") ? (
+  return (location.pathname.startsWith("/console") || location.pathname === "/workspace") ? (
     <ConsolePage />
   ) : (
     <HomePage />

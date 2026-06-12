@@ -69,6 +69,7 @@ def create_app() -> FastAPI:
     )
 
     @app.get("/health")
+    @app.get(f"{settings.api_prefix}/health")
     async def healthcheck() -> dict[str, str]:
         azure_configured = all(
             [
@@ -176,6 +177,62 @@ def create_app() -> FastAPI:
             response["latency_ms"] = round((perf_counter() - started) * 1000, 2)
         return response
 
+    async def iter_analysis_events(
+        analysis_id: str,
+        status,
+        dataframe,
+        engine: AnalysisEngine,
+        app_settings: Settings,
+    ):
+        phase_outputs: dict[int, object] = {}
+        async for event in engine.run_streaming_analysis(
+            analysis_id=analysis_id,
+            dataframe=dataframe,
+            filename=status.filename,
+        ):
+            phase = event["phase"]
+            status_str = event["status"]
+            title = event["title"]
+            output = event.get("output")
+
+            if status_str == "done" and output is not None:
+                phase_outputs[phase] = output
+                analysis_store.update(
+                    analysis_id,
+                    current_phase=phase,
+                    progress_label=title,
+                    status="processing" if phase < 11 else "completed",
+                )
+
+            yield event
+
+    def build_analysis_result(
+        analysis_id: str,
+        status,
+        phase_outputs: dict[int, object],
+    ) -> AnalysisResult:
+        phase3_out = phase_outputs[3]
+        cleaning_recs = [CleaningRecommendation(**r) for r in phase3_out["recommendations"]]
+        dq_dict = phase_outputs[2]
+        dq_dict["cleaning_summary"] = phase3_out["cleaning_summary"]
+
+        return AnalysisResult(
+            analysis_id=analysis_id,
+            filename=status.filename,
+            created_at=datetime.utcnow(),
+            dataset_summary=DatasetSummary(**phase_outputs[1]),
+            data_quality=DataQualityReport(**dq_dict),
+            cleaning_recommendations=cleaning_recs,
+            eda=EdaReport(**phase_outputs[4]),
+            business_insights=BusinessInsightsResponse(**phase_outputs[5]),
+            ml_problem_detection=MlProblemDetection(**phase_outputs[6]),
+            model_recommendations=RecommendationResponse(**phase_outputs[7]),
+            reasoning_engine=[ReasoningStep(**step) for step in phase_outputs[8]],
+            pipeline_blueprint=[PipelineStage(**stage) for stage in phase_outputs[9]],
+            evaluation_strategy=EvaluationStrategy(**phase_outputs[10]),
+            executive_report=ExecutiveReport(**phase_outputs[11]),
+        )
+
     @app.post(f"{settings.api_prefix}/upload")
     async def upload_file(
         file: UploadFile = File(...),
@@ -240,6 +297,49 @@ def create_app() -> FastAPI:
         app.state.dataframes[analysis_id] = dataframe
         return response
 
+    @app.post(f"{settings.api_prefix}/analyze", response_model=AnalysisStatus)
+    async def analyze(payload: AnalyzeRequest, app_settings: Settings = Depends(get_settings)):
+        status = analysis_store.get(payload.analysis_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Analysis ID not found.")
+
+        if status.result:
+            return status
+
+        dataframe = app.state.dataframes.get(payload.analysis_id)
+        if dataframe is None:
+            raise HTTPException(status_code=404, detail="Uploaded dataset not found in memory.")
+
+        engine = AnalysisEngine(app_settings)
+        analysis_store.update(
+            payload.analysis_id,
+            status="processing",
+            current_phase=1,
+            progress_label="Dataset Understanding",
+            error=None,
+        )
+        phase_outputs: dict[int, object] = {}
+        async for chunk in iter_analysis_events(
+            payload.analysis_id,
+            status,
+            dataframe,
+            engine,
+            app_settings,
+        ):
+            phase_outputs[chunk["phase"]] = chunk.get("output") if chunk.get("output") is not None else phase_outputs.get(chunk["phase"])
+        result = build_analysis_result(payload.analysis_id, status, phase_outputs)
+        if status.cache_key:
+            app.state.analysis_cache[status.cache_key] = result
+        analysis_store.update(
+            payload.analysis_id,
+            status="completed",
+            current_phase=11,
+            progress_label="Executive Report",
+            result=result,
+        )
+        updated = analysis_store.get(payload.analysis_id)
+        return updated.model_copy(update={"result": result}) if updated else status
+
     @app.get(f"{settings.api_prefix}/analyze/{{analysis_id}}/stream")
     async def stream_analysis(
         analysis_id: str,
@@ -280,65 +380,29 @@ def create_app() -> FastAPI:
                     progress_label="Dataset Understanding",
                     error=None,
                 )
-
-                phase_outputs = {}
-                async for event in engine.run_streaming_analysis(
-                    analysis_id=analysis_id,
-                    dataframe=dataframe,
-                    filename=status.filename,
+                phase_outputs: dict[int, object] = {}
+                async for chunk in iter_analysis_events(
+                    analysis_id,
+                    status,
+                    dataframe,
+                    engine,
+                    app_settings,
                 ):
-                    phase = event["phase"]
-                    status_str = event["status"]
-                    title = event["title"]
-                    output = event.get("output")
-                    
-                    # Yield SSE formatted message to client
+                    phase = chunk["phase"]
+                    output = chunk.get("output")
+                    if output is not None:
+                        phase_outputs[phase] = output
                     yield phase_event(
                         phase=phase,
-                        status=status_str,
-                        title=title,
+                        status=chunk["status"],
+                        title=chunk["title"],
                         output=output,
+                        error=chunk.get("error"),
                     )
 
-                    # When a phase completes, save output and update DB status
-                    if status_str == "done":
-                        if output is not None:
-                            phase_outputs[phase] = output
-                        analysis_store.update(
-                            analysis_id,
-                            current_phase=phase,
-                            progress_label=title,
-                            status="processing" if phase < 11 else "completed",
-                        )
-
-                # Collect outputs to reconstruct final AnalysisResult
-                phase3_out = phase_outputs[3]
-                cleaning_recs = [CleaningRecommendation(**r) for r in phase3_out["recommendations"]]
-                
-                dq_dict = phase_outputs[2]
-                dq_dict["cleaning_summary"] = phase3_out["cleaning_summary"]
-
-                result = AnalysisResult(
-                    analysis_id=analysis_id,
-                    filename=status.filename,
-                    created_at=datetime.utcnow(),
-                    dataset_summary=DatasetSummary(**phase_outputs[1]),
-                    data_quality=DataQualityReport(**dq_dict),
-                    cleaning_recommendations=cleaning_recs,
-                    eda=EdaReport(**phase_outputs[4]),
-                    business_insights=BusinessInsightsResponse(**phase_outputs[5]),
-                    ml_problem_detection=MlProblemDetection(**phase_outputs[6]),
-                    model_recommendations=RecommendationResponse(**phase_outputs[7]),
-                    reasoning_engine=[ReasoningStep(**step) for step in phase_outputs[8]],
-                    pipeline_blueprint=[PipelineStage(**stage) for stage in phase_outputs[9]],
-                    evaluation_strategy=EvaluationStrategy(**phase_outputs[10]),
-                    executive_report=ExecutiveReport(**phase_outputs[11]),
-                )
-
-                # Cache and save the final complete result
+                result = build_analysis_result(analysis_id, status, phase_outputs)
                 if status.cache_key:
                     app.state.analysis_cache[status.cache_key] = result
-                
                 analysis_store.update(
                     analysis_id,
                     status="completed",
@@ -346,7 +410,6 @@ def create_app() -> FastAPI:
                     progress_label="Executive Report",
                     result=result,
                 )
-
                 yield complete_event(result.model_dump())
 
             except Exception as exc:
