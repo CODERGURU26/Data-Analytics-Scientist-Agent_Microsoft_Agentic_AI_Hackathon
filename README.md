@@ -25,6 +25,24 @@ Upload any CSV dataset and InsightAI's 11-agent pipeline walks through it exactl
 
 ---
 
+## System Architecture
+
+![InsightAI System Architecture](./Gemini_Generated_Image_b3mhddb3mhddb3mh.png)
+
+InsightAI is built around four core layers that work in sequence:
+
+**Next.js Frontend** — File upload, interactive dashboard, charts, insight view, model recommendation explanations, and downloadable PDF report.
+
+**FastAPI Backend** — API endpoints, workflow orchestration, async task queue, user session management, and authentication.
+
+**Data Processing Engine** — Pandas-powered pipeline for data cleaning, EDA, feature detection, and metadata extraction.
+
+**Microsoft AI Foundry / Azure OpenAI** — Drives insight generation, ML model recommendations, reasoning & explanations via agentic AI, and business context analysis.
+
+The AI Reasoning Engine sits alongside these layers, handling business insight summaries, model recommendations with trade-off explanations, and structured results back to the frontend — all accelerated during development with **GitHub Copilot**.
+
+---
+
 ## Demo
 
 ```
@@ -244,6 +262,5 @@ The tagline **"Analyze. Reason. Recommend."** reflects the exact workflow: Panda
 ---
 
 <div align="center">
-
 
 </div>
