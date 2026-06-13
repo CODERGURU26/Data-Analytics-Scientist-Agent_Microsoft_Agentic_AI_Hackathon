@@ -25,6 +25,8 @@ dist-ssr
 *.sw?
 .venv
 .venv312
+.venv310
+.venv311
 __pycache__/
 *.pyc
 backend/storage/uploads/*

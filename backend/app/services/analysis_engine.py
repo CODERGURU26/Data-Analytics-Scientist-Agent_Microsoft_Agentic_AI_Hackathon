@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,6 +61,7 @@ class AnalysisEngine:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.azure = AzureOpenAIService(settings)
+        self._identifier_columns: list[str] = []
 
     # ── CSV Loading ──────────────────────────────────────────────────
     def load_csv(self, file_path: Path, analysis_id: str, original_name: str) -> tuple[pd.DataFrame, UploadResponse]:
@@ -106,6 +108,9 @@ class AnalysisEngine:
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Yield phase events as dict: {phase, status, title, output}."""
 
+        # Detect identifiers early so Phase 1 can exclude them
+        self._identifier_columns = self._detect_identifier_columns(dataframe)
+
         # ── Phase 1: Dataset Understanding ───────────────────────────
         yield {"phase": 1, "status": "running", "title": PHASE_LABELS[1]}
         dataset_summary = self._dataset_summary(dataframe)
@@ -129,6 +134,8 @@ class AnalysisEngine:
         # ── Phase 3: Cleaning Agent (actually cleans the data) ──────
         yield {"phase": 3, "status": "running", "title": PHASE_LABELS[3]}
         cleaned_dataframe, cleaning_summary = self._clean_dataframe(dataframe)
+        if self._identifier_columns:
+            cleaning_summary += f"; flagged identifier columns (excluded from numeric features): {', '.join(self._identifier_columns)}"
         data_quality.cleaning_summary = cleaning_summary
         cleaning_recommendations = self._cleaning_recommendations(cleaned_dataframe, data_quality)
 
@@ -137,6 +144,7 @@ class AnalysisEngine:
             "rows_before": int(len(dataframe)),
             "rows_after": int(len(cleaned_dataframe)),
             "rows_removed": int(len(dataframe) - len(cleaned_dataframe)),
+            "identifier_columns": self._identifier_columns,
             "recommendations": [r.model_dump() for r in cleaning_recommendations],
         }
         yield {
@@ -161,7 +169,7 @@ class AnalysisEngine:
         yield {"phase": 5, "status": "running", "title": PHASE_LABELS[5]}
         ml_problem = self._detect_problem_type(cleaned_dataframe)
         business_insights = await self._business_insights(
-            dataset_summary, data_quality, eda_report, ml_problem
+            dataset_summary, data_quality, eda_report, ml_problem, dataframe
         )
         yield {
             "phase": 5,
@@ -194,7 +202,8 @@ class AnalysisEngine:
         # ── Phase 8: Reasoning Agent ───────────────────────────────
         yield {"phase": 8, "status": "running", "title": PHASE_LABELS[8]}
         reasoning_engine = await self._reasoning_engine(
-            dataset_summary, data_quality, business_insights, model_recommendations
+            dataset_summary, data_quality, business_insights, model_recommendations,
+            eda_report, ml_problem,
         )
         yield {
             "phase": 8,
@@ -250,6 +259,9 @@ class AnalysisEngine:
         filename: str,
         progress_callback,
     ) -> AnalysisResult:
+        # Detect identifiers early
+        self._identifier_columns = self._detect_identifier_columns(dataframe)
+
         cleaned_dataframe, cleaning_summary = self._clean_dataframe(dataframe)
         dataset_summary = self._dataset_summary(cleaned_dataframe)
         await progress_callback(1, PHASE_LABELS[1])
@@ -268,7 +280,7 @@ class AnalysisEngine:
         await progress_callback(5, PHASE_LABELS[5])
         ml_problem = self._detect_problem_type(cleaned_dataframe)
         business_insights = await self._business_insights(
-            dataset_summary, data_quality, eda_report, ml_problem
+            dataset_summary, data_quality, eda_report, ml_problem, dataframe
         )
 
         await progress_callback(6, PHASE_LABELS[6])
@@ -278,7 +290,8 @@ class AnalysisEngine:
         await progress_callback(7, PHASE_LABELS[7])
 
         reasoning_engine = await self._reasoning_engine(
-            dataset_summary, data_quality, business_insights, model_recommendations
+            dataset_summary, data_quality, business_insights, model_recommendations,
+            eda_report, ml_problem,
         )
         await progress_callback(8, PHASE_LABELS[8])
 
@@ -403,13 +416,19 @@ class AnalysisEngine:
                 converted = self._coerce_datetime(df[column])
                 if converted.notna().mean() > 0.8:
                     datetime_columns.append(column)
-        numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
-        categorical_columns = [col for col in df.columns if col not in numeric_columns and col not in datetime_columns]
+        # Exclude identifier columns from numeric features
+        numeric_columns = [
+            col for col in df.select_dtypes(include=[np.number]).columns.tolist()
+            if col not in self._identifier_columns
+        ]
+        categorical_columns = [col for col in df.columns if col not in numeric_columns and col not in datetime_columns and col not in self._identifier_columns]
         summary = (
             f"Dataset contains {len(df):,} rows and {len(df.columns)} columns. "
             f"{len(numeric_columns)} numeric fields, {len(categorical_columns)} categorical fields, "
             f"and {len(datetime_columns)} datetime-like fields identified."
         )
+        if self._identifier_columns:
+            summary += f" Identifier columns excluded from analysis: {', '.join(self._identifier_columns)}."
         return DatasetSummary(
             row_count=int(len(df)),
             column_count=int(len(df.columns)),
@@ -466,21 +485,33 @@ class AnalysisEngine:
                     )
                 )
 
-        penalty = 0
-        penalty += min(35, int(sum(item.missing_pct for item in missing_values) / max(len(missing_values), 1)))
-        penalty += min(15, duplicate_records)
-        penalty += min(15, len(constant_columns) * 5)
-        penalty += min(20, len(outliers) * 3)
-        penalty += min(15, len(invalid_values) * 4)
-        score = max(0, 100 - penalty)
+        # Health score formula: completeness - duplicate penalty
+        total_cells = len(dataframe) * len(dataframe.columns)
+        total_missing = int(dataframe.isna().sum().sum())
+        total_rows = len(dataframe)
+
+        completeness_pct = round((1 - total_missing / total_cells) * 100, 1) if total_cells > 0 else 100.0
+        duplicate_penalty_pct = round((duplicate_records / total_rows) * 100, 1) if total_rows > 0 else 0.0
+        score = round(completeness_pct - duplicate_penalty_pct, 1)
+        score = max(0.0, min(100.0, score))
+
+        # Build outlier detail string for explanation
+        outlier_details = ""
+        if outliers:
+            outlier_parts = [f"{o.column}: {o.outlier_count} outliers ({o.outlier_pct}%)" for o in outliers]
+            outlier_details = f" Outlier columns (IQR method): {'; '.join(outlier_parts)}."
 
         explanation = (
-            f"Health score reflects missingness, duplicates, constant fields, outlier density, and invalid string values. "
-            f"Primary issues: {duplicate_records} duplicate rows, {len(missing_values)} columns with missing values, "
-            f"{len(constant_columns)} constant columns."
+            f"Health score = completeness ({completeness_pct}%) - duplicate penalty ({duplicate_penalty_pct}%) = {score}%. "
+            f"Completeness: {total_cells - total_missing}/{total_cells} cells present. "
+            f"Duplicates: {duplicate_records}/{total_rows} rows. "
+            f"{len(missing_values)} columns with missing values, {len(constant_columns)} constant columns."
+            f"{outlier_details}"
         )
         return DataQualityReport(
             dataset_health_score=score,
+            completeness_pct=completeness_pct,
+            duplicate_penalty_pct=duplicate_penalty_pct,
             missing_values=missing_values,
             duplicate_records=duplicate_records,
             constant_columns=constant_columns,
@@ -544,6 +575,8 @@ class AnalysisEngine:
                     "median": round(float(series.median()), 3),
                     "std": round(float(series.std()), 3) if len(series) > 1 else 0.0,
                     "skew": round(float(series.skew()), 3) if len(series) > 2 else 0.0,
+                    "min": round(float(series.min()), 3),
+                    "max": round(float(series.max()), 3),
                 }
             )
 
@@ -672,11 +705,18 @@ class AnalysisEngine:
         preferred_names = ["target", "label", "outcome", "y", "churn", "revenue", "sales", "price"]
         lower_map = {column.lower(): column for column in dataframe.columns}
         for name in preferred_names:
-            if name in lower_map:
+            if name in lower_map and lower_map[name] not in self._identifier_columns:
                 return lower_map[name]
 
-        numeric_columns = dataframe.select_dtypes(include=[np.number]).columns.tolist()
-        object_columns = dataframe.select_dtypes(exclude=[np.number]).columns.tolist()
+        # Exclude identifier columns from candidate targets
+        numeric_columns = [
+            col for col in dataframe.select_dtypes(include=[np.number]).columns.tolist()
+            if col not in self._identifier_columns
+        ]
+        object_columns = [
+            col for col in dataframe.select_dtypes(exclude=[np.number]).columns.tolist()
+            if col not in self._identifier_columns
+        ]
         if object_columns:
             ranked = sorted(object_columns, key=lambda col: dataframe[col].nunique(dropna=True))
             for column in ranked:
@@ -685,7 +725,8 @@ class AnalysisEngine:
                     return column
         if numeric_columns:
             return numeric_columns[-1]
-        return dataframe.columns[-1] if len(dataframe.columns) else None
+        non_id_cols = [c for c in dataframe.columns if c not in self._identifier_columns]
+        return non_id_cols[-1] if non_id_cols else None
 
     def _detect_problem_type(self, dataframe: pd.DataFrame) -> MlProblemDetection:
         target = self._guess_target(dataframe)
@@ -708,14 +749,53 @@ class AnalysisEngine:
         if target:
             series = dataframe[target]
             unique_count = series.nunique(dropna=True)
-            if series.dtype == "object" or unique_count <= min(12, max(2, len(dataframe) // 10)):
+            row_count = len(dataframe)
+
+            if series.dtype == "object":
+                # String/categorical target → always classification
                 problem_type = "classification"
                 confidence = 86
-                reasoning.append(f"Target candidate '{target}' has limited discrete states.")
+                reasoning.append(
+                    f"'{target}' is {series.dtype} with {unique_count} unique values -> classification"
+                )
+            elif pd.api.types.is_float_dtype(series):
+                # Float target → always regression
+                problem_type = "regression"
+                confidence = 88
+                reasoning.append(
+                    f"'{target}' is {series.dtype} with {unique_count} unique values "
+                    f"out of {row_count} rows -> regression (float dtype)"
+                )
+            elif pd.api.types.is_integer_dtype(series):
+                ratio = unique_count / row_count if row_count > 0 else 0
+                if unique_count <= 20:
+                    # Low-cardinality int → classification (e.g., binary 0/1 churn)
+                    problem_type = "classification"
+                    confidence = 86
+                    reasoning.append(
+                        f"'{target}' is {series.dtype} with {unique_count} unique values -> classification"
+                    )
+                elif ratio > 0.05:
+                    # High-cardinality int → regression
+                    problem_type = "regression"
+                    confidence = 82
+                    reasoning.append(
+                        f"'{target}' is {series.dtype} with {unique_count} unique values "
+                        f"(ratio {ratio:.2f} > 0.05) -> regression"
+                    )
+                else:
+                    problem_type = "classification"
+                    confidence = 75
+                    reasoning.append(
+                        f"'{target}' is {series.dtype} with low unique ratio ({ratio:.2f}) -> classification"
+                    )
             elif pd.api.types.is_numeric_dtype(series):
+                # Other numeric types → regression
                 problem_type = "regression"
                 confidence = 82
-                reasoning.append(f"Target candidate '{target}' is continuous numeric signal.")
+                reasoning.append(
+                    f"'{target}' is numeric ({series.dtype}) with {unique_count} unique values -> regression"
+                )
 
         if not possible_targets and len(dataframe.columns) >= 3:
             reasoning.append("No explicit target found. Unsupervised segmentation remains viable.")
@@ -733,6 +813,7 @@ class AnalysisEngine:
         data_quality: DataQualityReport,
         eda_report: EdaReport,
         ml_problem: MlProblemDetection,
+        dataframe: pd.DataFrame = None,
     ) -> BusinessInsightsResponse:
         context = {
             "dataset_summary": dataset_summary.model_dump(),
@@ -752,6 +833,47 @@ class AnalysisEngine:
             target_var = ml_problem.possible_target_variables[0] if ml_problem.possible_target_variables else "the primary columns"
             num_cols = len(dataset_summary.numeric_columns)
             cat_cols = len(dataset_summary.categorical_columns)
+
+            # ── Extract real data from EDA ──
+            best_corr = None
+            if eda_report and eda_report.correlation_matrix:
+                corr_pairs: list[tuple[str, str, float, float]] = []
+                cols = list(eda_report.correlation_matrix.keys())
+                for i, col_a in enumerate(cols):
+                    for col_b in cols[i + 1:]:
+                        val = eda_report.correlation_matrix.get(col_a, {}).get(col_b, 0.0)
+                        if val is not None:
+                            corr_pairs.append((col_a, col_b, abs(float(val)), float(val)))
+                corr_pairs.sort(key=lambda x: x[2], reverse=True)
+                if corr_pairs:
+                    best_corr = corr_pairs[0]
+
+            def get_correlation_descriptor(r: float) -> str:
+                abs_r = abs(r)
+                if abs_r >= 0.7:
+                    return "strong"
+                elif abs_r >= 0.4:
+                    return "moderate"
+                elif abs_r >= 0.2:
+                    return "weak"
+                else:
+                    return "negligible"
+
+            best_cat = None
+            best_cat_pct = 0.0
+            if eda_report and eda_report.charts:
+                for chart in eda_report.charts:
+                    if chart.chart_type == "bar" and chart.data:
+                        bar_data = chart.data[0]
+                        x_vals = bar_data.get("x", [])
+                        y_vals = bar_data.get("y", [])
+                        if x_vals and y_vals:
+                            total_y = sum(y_vals)
+                            if total_y > 0:
+                                top_idx = int(np.argmax(y_vals))
+                                best_cat_pct = (y_vals[top_idx] / total_y) * 100
+                                best_cat = (x_vals[top_idx], y_vals[top_idx], chart.title.replace(' breakdown', ''))
+                        break
             
             dynamic_findings = [
                 {
@@ -761,6 +883,39 @@ class AnalysisEngine:
                     "expected_impact": "Mitigates algorithmic bias and maximizes target prediction confidence."
                 }
             ]
+            
+            if best_corr:
+                corr_desc = get_correlation_descriptor(best_corr[3])
+                if abs(best_corr[3]) >= 0.2:
+                    dynamic_findings.append({
+                        "finding": f"{best_corr[0]} and {best_corr[1]} show the strongest correlation at {best_corr[3]:.2f}.",
+                        "insight": f"These variables exhibit a {corr_desc} correlation, representing a primary driver of variance in the dataset.",
+                        "recommendation": f"Feature engineering should focus on modeling the interaction between {best_corr[0]} and {best_corr[1]}.",
+                        "expected_impact": "Captures critical relationships early in the pipeline."
+                    })
+                else:
+                    dynamic_findings.append({
+                        "finding": f"Pairwise correlation analysis shows no strong linear relationships; highest correlation is {best_corr[0]} and {best_corr[1]} at {best_corr[3]:.2f}.",
+                        "insight": "Numeric variables show linear independence from one another.",
+                        "recommendation": "Maintain all numeric features as independent predictors in the initial feature space.",
+                        "expected_impact": "Prevents redundant dimensionality reduction and preserves unique information."
+                    })
+            
+            if best_cat:
+                cat_desc = "dominant" if best_cat_pct >= 50.0 else "most common"
+                if best_cat_pct >= 50.0:
+                    insight_str = f"A high concentration ({best_cat_pct:.1f}%) in a single category can introduce class imbalance for segment-specific predictions."
+                    rec_str = f"Ensure stratified sampling is used to prevent the model from over-indexing on this {cat_desc} segment."
+                else:
+                    insight_str = f"The '{best_cat[0]}' segment is the largest category in {best_cat[2]} but represents a minority overall ({best_cat_pct:.1f}%), indicating a distributed category mix."
+                    rec_str = "Use standard sampling but monitor class weights during model training."
+
+                dynamic_findings.append({
+                    "finding": f"Categorical analysis reveals '{best_cat[0]}' is the {cat_desc} segment in {best_cat[2]} ({best_cat[1]} occurrences, {best_cat_pct:.1f}% of total).",
+                    "insight": insight_str,
+                    "recommendation": rec_str,
+                    "expected_impact": "Improves generalization and prevents biased performance on minority groups."
+                })
             
             if ml_problem.possible_target_variables:
                 dynamic_findings.append({
@@ -781,17 +936,77 @@ class AnalysisEngine:
             if data_quality.missing_values:
                 quality_risks.append(f"Missing values detected in {len(data_quality.missing_values)} columns, leading to possible training biases.")
             if data_quality.outliers:
-                quality_risks.append(f"Anomalous values or outliers in {len(data_quality.outliers)} numerical columns could distort predictions.")
+                outlier_details = []
+                for o in data_quality.outliers:
+                    outlier_details.append(f"{o.column} ({o.outlier_count} outliers)")
+                quality_risks.append(f"Anomalous values detected: {', '.join(outlier_details)} (IQR method) could distort predictions.")
             if not quality_risks:
                 quality_risks.append("No critical missing values or outliers found, but data drift should be monitored.")
             quality_risks.append(f"Framing as {problem_type} requires valid stakeholder alignment on performance threshold.")
             
-            dynamic_opps = [
-                f"Leverage the {num_cols} numerical indicators to design predictive KPIs.",
-                f"Examine high-cardinality categorical attributes for customer behavioral segmentation.",
-            ]
+            dynamic_opps = []
+            if best_corr:
+                corr_desc = get_correlation_descriptor(best_corr[3])
+                if abs(best_corr[3]) >= 0.2:
+                    dynamic_opps.append(f"With {num_cols} numeric features available, the {corr_desc} correlation ({best_corr[3]:.2f}) between {best_corr[0]} and {best_corr[1]} suggests these variables could be combined or used as interaction terms in modeling.")
+                else:
+                    dynamic_opps.append(f"No strong linear relationships were found among numeric features (highest correlation: {best_corr[0]} and {best_corr[1]} at {best_corr[3]:.2f}), suggesting these variables may contribute independent signal to the model.")
+            else:
+                dynamic_opps.append(f"Leverage the {num_cols} numerical indicators to design predictive KPIs.")
+                
+            if best_cat:
+                cat_desc = "dominant" if best_cat_pct >= 50.0 else "most common"
+                dynamic_opps.append(f"Design targeted interventions for the {cat_desc} '{best_cat[0]}' cohort ({best_cat_pct:.1f}% of total) to maximize impact within the {best_cat[2]} segment.")
+            else:
+                dynamic_opps.append("Examine high-cardinality categorical attributes for customer behavioral segmentation.")
+            
             if ml_problem.possible_target_variables:
-                dynamic_opps.append(f"Automate decision-making loops around target '{target_var}' forecasting.")
+                if problem_type == "classification":
+                    if dataframe is not None and target_var in dataframe.columns:
+                        t_col = dataframe[target_var].dropna()
+                        counts = t_col.value_counts()
+                        total = len(t_col)
+                        num_classes = len(counts)
+                        if total > 0 and num_classes >= 2:
+                            if num_classes == 2:
+                                minority_class = counts.index[-1]
+                                minority_count = counts.iloc[-1]
+                                minority_pct = (minority_count / total) * 100
+                                dynamic_opps.append(f"With {minority_pct:.1f}% of records labeled '{minority_class}', predictive modeling for '{target_var}' must incorporate class balancing techniques.")
+                            else:
+                                dist_str = ", ".join(f"'{cls}' ({cnt/total*100:.1f}%)" for cls, cnt in counts.items())
+                                largest_class = counts.index[0]
+                                dynamic_opps.append(f"{target_var} has {num_classes} classes with the following distribution: {dist_str}. The {largest_class} class dominates, which may require class balancing techniques (e.g., SMOTE, class weights) during model training.")
+                        else:
+                            dynamic_opps.append(f"Automate decision-making loops around target '{target_var}' forecasting.")
+                    else:
+                        dynamic_opps.append(f"Automate decision-making loops around target '{target_var}' forecasting.")
+                else:
+                    t_min = t_max = t_med = None
+                    if dataframe is not None and target_var in dataframe.columns:
+                        t_col = dataframe[target_var].dropna()
+                        if pd.api.types.is_numeric_dtype(t_col) and not t_col.empty:
+                            t_min = t_col.min()
+                            t_max = t_col.max()
+                            t_med = t_col.median()
+                    
+                    if t_min is None:
+                        # Fall back to distribution_analysis or summary_statistics
+                        t_stats = next((d for d in eda_report.distribution_analysis if d.get("column") == target_var), None)
+                        if t_stats and "min" in t_stats and "max" in t_stats and "median" in t_stats:
+                            t_min = t_stats["min"]
+                            t_max = t_stats["max"]
+                            t_med = t_stats["median"]
+                        elif target_var in eda_report.summary_statistics:
+                            ss = eda_report.summary_statistics[target_var]
+                            t_min = ss.get("min")
+                            t_max = ss.get("max")
+                            t_med = ss.get("50%")
+                    
+                    if t_min is not None and t_max is not None and t_med is not None:
+                        dynamic_opps.append(f"With {target_var} ranging from {t_min:g} to {t_max:g} (median {t_med:g}), automating forecasting could help proactively flag high-value cases for operational decisions.")
+                    else:
+                        dynamic_opps.append(f"Automate decision-making loops around target '{target_var}' forecasting.")
                 
             dynamic_recs = [
                 f"Deploy a modular training pipeline using {problem_type.capitalize()} templates.",
@@ -802,10 +1017,12 @@ class AnalysisEngine:
             else:
                 dynamic_recs.append("Monitor ingestion streams to keep duplicate records at zero.")
 
+            health_desc = "robust" if health >= 85 else ("stable" if health >= 70 else "compromised")
+            flaws_desc = "minor flaws" if health >= 85 else ("moderate anomalies" if health >= 70 else "significant anomalies")
             dynamic_narrative = (
-                f"Based on the analysis of {dataset_summary.row_count} records, the data presents a robust {health}% health index. "
+                f"Based on the analysis of {dataset_summary.row_count} records, the data presents a {health_desc} {health}% health index. "
                 f"We recommend a {problem_type} model targeting '{target_var}' using the available {num_cols} numeric features. "
-                "Immediate opportunity exists to clean remaining minor flaws and pilot a baseline model to drive measurable business KPIs."
+                f"Immediate opportunity exists to clean remaining {flaws_desc} and pilot a baseline model to drive measurable business KPIs."
             )
 
             return BusinessInsightsResponse(
@@ -843,14 +1060,14 @@ class AnalysisEngine:
                         why_recommended="Strong starting point when business stakeholders need transparent feature impact.",
                     ),
                     ModelRecommendation(
-                        model_name="Random Forest",
+                        model_name="Random Forest Classifier",
                         confidence_score=88,
                         strengths=["Handles nonlinear interactions", "Robust to mixed tabular features", "Low feature engineering burden"],
                         weaknesses=["Can be less interpretable", "Larger model footprint"],
                         why_recommended="Reliable production candidate for heterogeneous business datasets with moderate noise.",
                     ),
                     ModelRecommendation(
-                        model_name="XGBoost",
+                        model_name="XGBoost Classifier",
                         confidence_score=91,
                         strengths=["High predictive performance", "Works well on sparse signal", "Strong ranking capability"],
                         weaknesses=["Tuning complexity", "Harder governance narrative"],
@@ -926,6 +1143,8 @@ class AnalysisEngine:
         data_quality: DataQualityReport,
         business_insights: BusinessInsightsResponse,
         model_recommendations: RecommendationResponse,
+        eda_report: EdaReport | None = None,
+        ml_problem: MlProblemDetection | None = None,
     ) -> list[ReasoningStep]:
         context = {
             "dataset_summary": dataset_summary.model_dump(),
@@ -939,25 +1158,122 @@ class AnalysisEngine:
         except Exception as exc:
             logger.exception("Azure reasoning failed; using fallback", exc_info=exc)
             top_model = model_recommendations.ranked_models[0]
+
+            # ── Extract real data from EDA for data-derived reasoning ──
+            # Top correlation pairs
+            top_corr_text = "No correlation data available."
+            if eda_report and eda_report.correlation_matrix:
+                corr_pairs: list[tuple[str, str, float]] = []
+                cols = list(eda_report.correlation_matrix.keys())
+                for i, col_a in enumerate(cols):
+                    for col_b in cols[i + 1:]:
+                        val = eda_report.correlation_matrix.get(col_a, {}).get(col_b, 0.0)
+                        if val is not None:
+                            corr_pairs.append((col_a, col_b, abs(float(val))))
+                corr_pairs.sort(key=lambda x: x[2], reverse=True)
+                if corr_pairs:
+                    top_n = corr_pairs[:3]
+                    top_corr_text = ", ".join(
+                        f"{a} & {b} (r={eda_report.correlation_matrix.get(a, {}).get(b, 0.0):.2f})"
+                        for a, b, _ in top_n
+                    )
+
+            # Distribution highlights
+            dist_text = "No distribution analysis available."
+            if eda_report and eda_report.distribution_analysis:
+                dist_parts = []
+                for d in eda_report.distribution_analysis[:3]:
+                    col_name = d.get("column", "unknown")
+                    mean_val = d.get("mean", 0)
+                    median_val = d.get("median", 0)
+                    skew_val = d.get("skew", 0)
+                    dist_parts.append(f"{col_name} (mean={mean_val}, median={median_val}, skew={skew_val})")
+                dist_text = "; ".join(dist_parts)
+
+            # Feature importance
+            feat_text = "No feature importance data available."
+            if eda_report and eda_report.feature_importance_candidates:
+                feat_parts = [
+                    f"{f['feature']} (importance={f['importance']:.4f})"
+                    for f in eda_report.feature_importance_candidates[:3]
+                ]
+                feat_text = ", ".join(feat_parts)
+
+            # Target / problem context
+            target_name = "unknown"
+            problem_type_str = model_recommendations.problem_type
+            if ml_problem and ml_problem.possible_target_variables:
+                target_name = ml_problem.possible_target_variables[0]
+                problem_type_str = ml_problem.problem_type
+
+            # Category frequency (from EDA charts if available)
+            cat_text = ""
+            if eda_report and eda_report.charts:
+                for chart in eda_report.charts:
+                    if chart.chart_type == "bar" and chart.data:
+                        bar_data = chart.data[0]
+                        x_vals = bar_data.get("x", [])
+                        y_vals = bar_data.get("y", [])
+                        if x_vals and y_vals:
+                            top_idx = int(np.argmax(y_vals))
+                            cat_text = f"Top category in '{chart.title.replace(' breakdown', '')}': '{x_vals[top_idx]}' with {y_vals[top_idx]} occurrences."
+                        break
+
+            dq_desc = "strong" if data_quality.dataset_health_score >= 80 else ("moderate" if data_quality.dataset_health_score >= 60 else "weak")
+            if data_quality.dataset_health_score == 100:
+                inference_step1 = "Data quality is pristine. The dataset is fully complete and ready for modeling."
+                rec_step1 = "Proceed directly to feature selection and engineering without extra cleaning steps."
+            else:
+                inference_step1 = f"Data quality is {dq_desc} but preprocessing is needed before modeling. Key numeric distributions: {dist_text}."
+                rec_step1 = "Clean high-impact gaps and duplicates before model deployment."
+
+            is_dominant = False
+            if eda_report and eda_report.feature_importance_candidates:
+                top_imp = eda_report.feature_importance_candidates[0].get("importance", 0.0)
+                if top_imp >= 0.2:
+                    is_dominant = True
+            feat_desc = "dominant" if is_dominant else "leading"
+
             return [
                 ReasoningStep(
-                    observation="Dataset presents structured tabular signal with measurable quality constraints.",
-                    inference="Reliable analysis possible, but preprocessing discipline will materially affect model stability.",
-                    business_meaning="Operational decisions can be supported now, though quality remediation should precede scaled automation.",
-                    recommendation="Clean high-impact gaps and duplicates before model deployment.",
+                    observation=(
+                        f"Dataset has {dataset_summary.row_count} rows, {len(dataset_summary.numeric_columns)} numeric "
+                        f"and {len(dataset_summary.categorical_columns)} categorical features. "
+                        f"Health score is {data_quality.dataset_health_score}% "
+                        f"(completeness {data_quality.completeness_pct}%, duplicate penalty {data_quality.duplicate_penalty_pct}%). "
+                        f"{len(data_quality.missing_values)} columns have missing values, {data_quality.duplicate_records} duplicate rows found."
+                    ),
+                    inference=inference_step1,
+                    business_meaning=(
+                        f"The {problem_type_str} task targeting '{target_name}' can proceed with current data, "
+                        f"though addressing missing values and duplicates will improve reliability."
+                    ),
+                    recommendation=rec_step1,
                     expected_outcome="Improved trust, reproducibility, and recommendation quality.",
                 ),
                 ReasoningStep(
-                    observation="Feature candidates show concentrated explanatory power across small set of variables.",
-                    inference="Business performance likely driven by few dominant inputs rather than diffuse noise.",
+                    observation=(
+                        f"Top correlated feature pairs: {top_corr_text}. "
+                        f"Top feature importance drivers: {feat_text}. "
+                        f"{cat_text}"
+                    ),
+                    inference=(
+                        f"Business performance for '{target_name}' is likely driven by these {feat_desc} features "
+                        f"rather than diffuse noise across all columns."
+                    ),
                     business_meaning="Focused intervention on top drivers should outperform broad unfocused programs.",
-                    recommendation="Align highest-importance features with owner-led action plans.",
+                    recommendation=(
+                        f"Prioritize the top features ({feat_text}) for feature engineering and business action plans."
+                    ),
                     expected_outcome="Faster conversion from analysis into measurable business impact.",
                 ),
                 ReasoningStep(
-                    observation=f"{top_model.model_name} ranks highest for current problem framing.",
-                    inference="Nonlinear or mixed-type tabular patterns likely matter in prediction quality.",
-                    business_meaning="Model selection should balance lift with governance and deployment complexity.",
+                    observation=f"{top_model.model_name} ranks highest for the {problem_type_str} problem targeting '{target_name}'.",
+                    inference=(
+                        f"For {problem_type_str}, {top_model.model_name} offers strengths: {', '.join(top_model.strengths[:2])}. "
+                        f"Weaknesses to monitor: {', '.join(top_model.weaknesses[:2])}."
+                    ),
+                    business_meaning="Model selection should balance predictive lift with governance and deployment complexity.",
                     recommendation=f"Prototype with {top_model.model_name} and compare against transparent baseline.",
                     expected_outcome="Evidence-based model choice with clearer executive tradeoff framing.",
                 ),
@@ -1053,8 +1369,12 @@ class AnalysisEngine:
             )
         except Exception as exc:
             logger.exception("Azure executive report failed; using fallback", exc_info=exc)
+            
+            health_str = f" Health Score: {data_quality.dataset_health_score}% (Completeness: {data_quality.completeness_pct}%, Duplicate Penalty: {data_quality.duplicate_penalty_pct}%)."
+            overview_with_health = dataset_summary.summary + health_str
+
             report = ExecutiveReport(
-                dataset_overview=dataset_summary.summary,
+                dataset_overview=overview_with_health,
                 health_score=data_quality.dataset_health_score,
                 key_findings=[item.finding for item in business_insights.key_findings],
                 business_opportunities=business_insights.opportunities,
@@ -1096,6 +1416,20 @@ class AnalysisEngine:
         build_report_pdf(temp_result, pdf_path)
         report.pdf_download_url = f"/api/reports/{analysis_id}"
         return report
+
+    def _detect_identifier_columns(self, dataframe: pd.DataFrame) -> list[str]:
+        """Detect identifier columns by name pattern or high-cardinality integer."""
+        id_columns: list[str] = []
+        for col in dataframe.columns:
+            # Name-based: contains 'id' as standalone token (case-insensitive)
+            if re.search(r'(?:^id$|_id$|^id_|_id_)', col.lower()):
+                id_columns.append(col)
+                continue
+            # High-cardinality int64: nunique/len > 0.95
+            if dataframe[col].dtype in ('int64', 'int32') and len(dataframe) > 0:
+                if dataframe[col].nunique() / len(dataframe) > 0.95:
+                    id_columns.append(col)
+        return id_columns
 
     def _encode_features(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         df = dataframe.copy()

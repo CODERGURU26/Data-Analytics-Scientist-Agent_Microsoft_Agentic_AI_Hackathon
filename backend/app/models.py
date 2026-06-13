@@ -55,13 +55,15 @@ class InvalidValueRecord(BaseModel):
 
 
 class DataQualityReport(BaseModel):
-    dataset_health_score: int
+    dataset_health_score: float
     missing_values: list[MissingValueRecord]
     duplicate_records: int
     constant_columns: list[str]
     outliers: list[OutlierRecord]
     invalid_values: list[InvalidValueRecord]
     explanation: str
+    completeness_pct: float = 100.0
+    duplicate_penalty_pct: float = 0.0
     cleaning_summary: str | None = None
 
 
@@ -157,7 +159,7 @@ class EvaluationStrategy(BaseModel):
 
 class ExecutiveReport(BaseModel):
     dataset_overview: str
-    health_score: int
+    health_score: float
     key_findings: list[str]
     business_opportunities: list[str]
     risk_factors: list[str]

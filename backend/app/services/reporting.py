@@ -17,35 +17,35 @@ def build_report_pdf(result: AnalysisResult, output_path: Path) -> Path:
         "InsightTitle",
         parent=styles["Heading1"],
         fontName="Helvetica-Bold",
-        fontSize=24,
+        fontSize=20,
         textColor=colors.HexColor("#0A0D12"),
-        spaceAfter=18,
+        spaceAfter=12,
     )
     body_style = ParagraphStyle(
         "InsightBody",
         parent=styles["BodyText"],
         fontName="Helvetica",
-        fontSize=11,
-        leading=16,
+        fontSize=10,
+        leading=14,
         textColor=colors.HexColor("#1E2631"),
     )
     heading_style = ParagraphStyle(
         "InsightHeading",
         parent=styles["Heading2"],
         fontName="Helvetica-Bold",
-        fontSize=14,
+        fontSize=12,
         textColor=colors.HexColor("#C6A86A"),
-        spaceBefore=12,
-        spaceAfter=8,
+        spaceBefore=8,
+        spaceAfter=4,
     )
 
     doc = SimpleDocTemplate(
         str(output_path),
         pagesize=letter,
-        leftMargin=0.75 * inch,
-        rightMargin=0.75 * inch,
-        topMargin=0.75 * inch,
-        bottomMargin=0.75 * inch,
+        leftMargin=0.5 * inch,
+        rightMargin=0.5 * inch,
+        topMargin=0.5 * inch,
+        bottomMargin=0.5 * inch,
     )
 
     story = [
