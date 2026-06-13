@@ -27,7 +27,7 @@ Upload any CSV dataset and InsightAI's 11-agent pipeline walks through it exactl
 
 ## System Architecture
 
-![InsightAI System Architecture](./Gemini_Generated_Image_b3mhddb3mhddb3mh.png)
+![InsightAI System Architecture](./Architecture Diagram.png)
 
 InsightAI is built around four core layers that work in sequence:
 
